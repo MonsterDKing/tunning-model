@@ -41,7 +41,7 @@ from acordes_gnn.datos import DATOS, cargar_splits, ruta_de
 from acordes_gnn.etiquetas import SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
 
 CACHE = DATOS / "cache"
-VERSION_CACHE = 2  # súbelo si cambias grafo.py o etiquetas.py: invalida la caché
+VERSION_CACHE = 3  # súbelo si cambias grafo.py o etiquetas.py: invalida la caché
 
 
 def nombres_de(split: str, splits: dict | None = None) -> list[str]:
@@ -128,6 +128,7 @@ def transponer(grafo, k: int):
     if k == 0:
         return g
     g["note"].pitch = g["note"].pitch + k
+    g["note"].tonica = (g["note"].tonica + k) % 12  # la armadura se transpone con las notas: el grado no cambia
     y = g["note"].y
     raiz, calidad = y // 5, y % 5
     g["note"].y = torch.where(y >= 0, ((raiz + k) % 12) * 5 + calidad, y)

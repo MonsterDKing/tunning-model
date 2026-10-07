@@ -15,6 +15,10 @@ vector de rasgos (features) — ver ``NOMBRES_RASGOS``:
 - tiempo fuerte (1): 1 si cae en el primer tiempo del compás.
 - en el pulso (1): 1 si empieza justo en un pulso (no a contratiempo).
 - mano izquierda (1): 1 si está en el pentagrama de abajo (suele llevar la armonía).
+- grado en la armadura (12): qué grado de la escala mayor de la armadura es la nota (1, ♭2, 2…
+  7). En Re mayor (2♯) un Fa♯ es la 3ª. Es el "director" que sabe la tonalidad: la armadura la
+  escribió el arreglista. Ojo: no distingue mayor de su relativa menor (Do mayor y La menor no
+  llevan alteraciones), así que el grado se cuenta siempre desde la tónica MAYOR.
 
 Aristas entre notas (las calcula GraphMuse en C, ``create_score_graph``):
 
@@ -57,8 +61,8 @@ NOMBRES_RASGOS = [f"pc_{n}" for n in ("C", "C#", "D", "Eb", "E", "F", "F#", "G",
     "tiempo_fuerte",
     "en_pulso",
     "mano_izquierda",
-]
-NUM_RASGOS = len(NOMBRES_RASGOS)  # 18
+] + [f"grado_{g}" for g in ("1", "b2", "2", "b3", "3", "4", "#4", "5", "b6", "6", "b7", "7")]
+NUM_RASGOS = len(NOMBRES_RASGOS)  # 30
 
 EXPLICACION_ARISTAS = {
     "onset": "empieza a la vez que",
@@ -90,7 +94,7 @@ def leer_notas(ruta: str | Path) -> Notas:
     warnings.filterwarnings("ignore")
     score = pt.load_musicxml(str(ruta))
     na = score.note_array(include_time_signature=True, include_metrical_position=True,
-                          include_pitch_spelling=True, include_staff=True)  # fmt: skip
+                          include_pitch_spelling=True, include_staff=True, include_key_signature=True)  # fmt: skip
     if len(na) == 0:
         raise ValueError("la partitura no tiene notas")
     # GraphMuse asigna notas a compases recorriendo en orden: hay que ordenar por ataque (y altura)
@@ -111,16 +115,25 @@ def rasgos_fijos(na: np.ndarray) -> np.ndarray:
     return np.stack([duracion, posicion, fuerte, en_pulso, izquierda], axis=1).astype(np.float32)
 
 
-def calcular_rasgos(altura: torch.Tensor, fijos: torch.Tensor) -> torch.Tensor:
-    """Vector de rasgos de cada nota: [clase de altura one-hot (12), altura, fijos (5)]."""
+def tonica_de_armadura(quintas: np.ndarray) -> np.ndarray:
+    """Clase de altura de la tónica mayor: cada sostenido sube una quinta (7 semitonos) desde Do.
+
+    0 → Do, 1♯ → Sol, 2♯ → Re, 1♭ (−1) → Fa, 2♭ → Si♭… (el círculo de quintas).
+    """
+    return (7 * quintas) % 12
+
+
+def calcular_rasgos(altura: torch.Tensor, fijos: torch.Tensor, tonica: torch.Tensor) -> torch.Tensor:
+    """Vector de rasgos de cada nota: [clase de altura (12), altura, fijos (5), grado en la armadura (12)]."""
     pc = torch.nn.functional.one_hot(altura % 12, 12).float()
-    return torch.cat([pc, ((altura.float() - 60) / 24).unsqueeze(1), fijos], dim=1)
+    grado = torch.nn.functional.one_hot((altura - tonica) % 12, 12).float()
+    return torch.cat([pc, ((altura.float() - 60) / 24).unsqueeze(1), fijos, grado], dim=1)
 
 
 def actualizar_rasgos(grafo) -> None:
     """Recalcula ``x`` de notas, compases y pulsos (después de transponer, por ejemplo)."""
     nota = grafo["note"]
-    nota.x = calcular_rasgos(nota.pitch, nota.fijos)
+    nota.x = calcular_rasgos(nota.pitch, nota.fijos, nota.tonica)
     for tipo, grupo in (("measure", "measure_cluster"), ("beat", "beat_cluster")):
         if tipo in grafo.node_types:
             x = torch.zeros(grafo[tipo].num_nodes, nota.x.shape[1])
@@ -135,11 +148,13 @@ def construir_grafo(notas: Notas, etiquetas: np.ndarray | None = None):
     na = notas.array
     fijos = torch.from_numpy(rasgos_fijos(na))
     altura = torch.from_numpy(na["pitch"].astype(np.int64))
-    x = calcular_rasgos(altura, fijos)
+    tonica = torch.from_numpy(tonica_de_armadura(na["ks_fifths"].astype(np.int64)))
+    x = calcular_rasgos(altura, fijos, tonica)
     grafo = gm.create_score_graph(
         x.numpy(), na, labels=etiquetas, sort=False, add_reverse=True, measures=notas.medidas_div, add_beats=True
     )
     grafo["note"].fijos = fijos
+    grafo["note"].tonica = tonica  # por nota: la armadura puede cambiar a mitad de pieza
     grafo["note"].onset_q = torch.from_numpy(na["onset_quarter"].astype(np.float32))
     grafo["note"].dur_q = torch.from_numpy(na["duration_quarter"].astype(np.float32))
     grafo["note"].compas = torch.from_numpy(notas.compas.astype(np.int64))

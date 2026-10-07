@@ -94,7 +94,7 @@ def evaluar_piezas(modelo: torch.nn.Module, piezas: list[dict], detalle: bool = 
     filas = []
     for p in piezas:
         g = p["grafo"]
-        logits = modelo(g.x_dict, g.edge_index_dict)
+        logits = modelo(g.x_dict, g.edge_index_dict, onset=g["note"].onset_q)
         prob = logits.softmax(-1)
         y = g["note"].y
         con = y >= 0

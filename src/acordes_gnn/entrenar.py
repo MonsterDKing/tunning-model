@@ -5,6 +5,8 @@ Una época = pasar una vez por todas las partituras de train. Para cada lote:
 1. **forward**: el modelo calcula 60 logits por nota.
 2. **pérdida**: entropía cruzada entre esos logits y el acorde escrito de cada nota (las notas
    sin etiqueta, -100, se ignoran). Es pequeña si el modelo da mucha probabilidad al acorde bueno.
+   Por defecto cada ACORDE escrito cuenta igual (ver ``pesos_por_acorde``), que es como cuenta la
+   métrica; con ``--no-peso-por-acorde`` cada NOTA cuenta igual (la versión original).
 3. **backward**: PyTorch calcula cuánto cambiaría la pérdida al mover cada peso (el gradiente).
 4. **paso**: AdamW mueve cada peso un poquito (``--lr``) en la dirección que baja la pérdida.
    ``--peso-decay`` empuja los pesos hacia 0 (regularización: modelos más simples generalizan mejor).
@@ -19,6 +21,8 @@ Uso::
     uv run entrenar                 # entrenamiento normal (CPU, 4 hilos: ver --hilos)
     uv run entrenar --sin-transposicion --epocas 40   # experimento: ¿cuánto aporta el aumento?
     uv run entrenar --arquitectura metrical           # la MetricalGNN de GraphMuse
+    uv run entrenar --arquitectura temporal           # GNN + GRU sobre los ataques (paso 6)
+    uv run entrenar --no-peso-por-acorde              # pérdida por nota (la original, ~2 puntos peor en dev)
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from acordes_gnn.datos import RAIZ
 from acordes_gnn.dataset import CorpusAcordes, nombres_de
 from acordes_gnn.etiquetas import NUM_CLASES, SIN_ETIQUETA
 from acordes_gnn.evaluar import evaluar_piezas
-from acordes_gnn.modelo import contar_parametros, crear_modelo
+from acordes_gnn.modelo import ARQUITECTURAS, contar_parametros, crear_modelo
 
 
 def argumentos(argv=None) -> argparse.Namespace:
@@ -50,13 +54,37 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--oculto", type=int, default=64)
     p.add_argument("--capas", type=int, default=3)
     p.add_argument("--dropout", type=float, default=0.3)
-    p.add_argument("--arquitectura", default="propio", choices=["propio", "metrical"])
+    p.add_argument("--arquitectura", default="propio", choices=list(ARQUITECTURAS))
     p.add_argument("--sin-transposicion", action="store_true", help="no aumentar train con transposiciones")
     p.add_argument("--semilla", type=int, default=0)
+    p.add_argument("--peso-por-acorde", action=argparse.BooleanOptionalAction, default=True,
+                   help="cada acorde escrito pesa igual en la pérdida (--no-peso-por-acorde: cada nota)")
+    p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
     # con grafos pequeños, muchos hilos se estorban: 24 hilos fue ~400× más lento que 4 en esta máquina
     p.add_argument("--hilos", type=int, default=4)
     p.add_argument("--salida", type=Path, default=RAIZ / "modelos" / "mejor.pt")
     return p.parse_args(argv)
+
+
+def pesos_por_acorde(y: torch.Tensor, pieza: torch.Tensor) -> torch.Tensor:
+    """Peso de cada nota para que cada acorde escrito sume 1 en la pérdida.
+
+    Por qué: la pérdida normal hace la media por NOTA, pero la métrica cuenta cada ACORDE escrito
+    por igual. Un acorde que dura dos compases tiene ~40 notas y uno de paso de una negra ~4: fallar
+    el de paso le cuesta al modelo 10 veces menos, así que aprende a "seguir con el acorde de la
+    zona" y se traga los acordes cortos (lo vimos en el diagnóstico: 69 % de acierto en acordes de
+    una negra o menos frente a 85 % en los de más de un compás).
+
+    Un "tramo" es una racha de notas seguidas (en orden de ataque) con la misma etiqueta y de la
+    misma pieza: las notas que empiezan a la vez llevan la misma etiqueta, así que cada tramo es
+    un acorde escrito (o dos seguidos iguales, que da lo mismo). Cada nota pesa 1 / (notas de su
+    tramo); las notas sin etiqueta pesan 0.
+    """
+    cambio = torch.ones_like(y, dtype=torch.bool)
+    cambio[1:] = (y[1:] != y[:-1]) | (pieza[1:] != pieza[:-1])
+    tramo = cambio.cumsum(0) - 1  # 0, 0, 0, 1, 1, 2…: a qué tramo pertenece cada nota
+    notas_del_tramo = torch.bincount(tramo)[tramo].float()
+    return torch.where(y == SIN_ETIQUETA, 0.0, 1.0 / notas_del_tramo)
 
 
 def fijar_semilla(s: int) -> None:
@@ -75,6 +103,11 @@ def main(argv=None) -> None:
     if args.humo:
         nombres_train, nombres_dev, args.epocas = nombres_train[:5], nombres_dev[:3], 1
         args.salida = args.salida.with_name("humo.pt")
+    if args.fraccion < 1.0:
+        # Curva de datos: ¿mejora el modelo si le damos más partituras? Con la misma semilla los
+        # subconjuntos están anidados (el 25 % está dentro del 50 %…), así solo cambia la cantidad.
+        orden = random.Random(args.semilla).sample(nombres_train, len(nombres_train))
+        nombres_train = orden[: max(1, round(len(orden) * args.fraccion))]
     train = CorpusAcordes(nombres_train, aumentar=not args.sin_transposicion, semilla=args.semilla)
     dev = CorpusAcordes(nombres_dev)
     if train.fallidas or dev.fallidas:
@@ -96,9 +129,17 @@ def main(argv=None) -> None:
         modelo.train()
         suma, n_ok, n_tot, n_lotes = 0.0, 0, 0, 0
         for lote in cargador:
-            logits = modelo(lote.x_dict, lote.edge_index_dict)
+            # onset y pieza (de qué partitura del lote es cada nota) los usa el modelo temporal
+            logits = modelo(lote.x_dict, lote.edge_index_dict, onset=lote["note"].onset_q, pieza=lote["note"].batch)
             y = lote["note"].y
-            perdida = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA)
+            if args.peso_por_acorde:
+                # pérdida de cada nota (0 en las sin etiqueta) × su peso; dividir entre la suma de
+                # pesos (= nº de acordes) da la media POR ACORDE en vez de por nota
+                por_nota = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA, reduction="none")
+                w = pesos_por_acorde(y, lote["note"].batch)
+                perdida = (por_nota * w).sum() / w.sum()
+            else:
+                perdida = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA)
             opt.zero_grad()
             perdida.backward()
             torch.nn.utils.clip_grad_norm_(modelo.parameters(), 1.0)
@@ -124,7 +165,7 @@ def main(argv=None) -> None:
               f"dev/nota {fila['dev_por_nota']:5.1%}  dev raíz {res['raiz']:5.1%}  raíz+cal {res['calidad']:5.1%}  "
               f"equiv {res['equivalente']:5.1%}  ({fila['segundos']:.1f}s){marca}", flush=True)  # fmt: skip
 
-    destino = RAIZ / "salidas" / f"historial_{'humo_' if args.humo else ''}{time.strftime('%Y%m%d-%H%M%S')}.json"
+    destino = RAIZ / "salidas" / f"historial_{args.salida.stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     destino.parent.mkdir(exist_ok=True)
     destino.write_text(json.dumps({"config": vars(args) | {"salida": str(args.salida)}, "historial": historial},
                                   ensure_ascii=False, indent=1))  # fmt: skip
