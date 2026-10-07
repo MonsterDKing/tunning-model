@@ -1,0 +1,149 @@
+{
+ "_leeme": "Acordes del cifrado original que contradicen las notas de la propia partitura. validar() compara contra 'corregido' y también informa la precisión contra el original. Criterio: solo se corrige si las notas contradicen el acorde escrito (p. ej. suena la tercera opuesta y no la escrita). Lo dudoso (sin tercera, notas que caben en dos acordes) no se toca.",
+ "21_PERFECT_-_Lead_Sheet.musicxml": [
+  {
+   "compas": 4,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Solo suenan Re y La en el tramo. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 12,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 20,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 29,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 35,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 39,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 43,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 47,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Solo suenan Re y La en el tramo. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 53,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 59,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 63,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 67,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 71,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Solo suenan Re y La en el tramo. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 75,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Solo suenan Re y La en el tramo. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 80,
+   "offset": 0,
+   "original": "D",
+   "corregido": "Dm",
+   "motivo": "Suena Fa natural y no Fa#. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  },
+  {
+   "compas": 80,
+   "offset": 1.5,
+   "original": "A/C",
+   "corregido": "Am/C",
+   "motivo": "Suenan Do natural (bajo) y Mi; un La mayor sobre Do natural no es posible. La partitura está en Fa mayor y no tiene ningún Fa# ni Do#: el archivo exporta todos los acordes como mayores (I–vi–IV–V de la canción original, transportada)."
+  }
+ ],
+ "191_A_Million_Dreams_Piano-Intermediate.musicxml": [
+  {
+   "compas": 53,
+   "offset": 0,
+   "original": "E",
+   "corregido": "Em",
+   "motivo": "Suenan Mi–Sol natural–Si y no Sol#. Es el inicio del cliché Em → Em(maj7) (= Eb+) → Em7 (= G/D) → Em6 con el bajo bajando por semitonos."
+  },
+  {
+   "compas": 61,
+   "offset": 0,
+   "original": "E",
+   "corregido": "Em",
+   "motivo": "Suenan Mi–Sol natural–Si y no Sol#. Es el inicio del cliché Em → Em(maj7) (= Eb+) → Em7 (= G/D) → Em6 con el bajo bajando por semitonos."
+  }
+ ],
+ "2986_A_Million_Dreams_Piano-Advanced.musicxml": [
+  {
+   "compas": 53,
+   "offset": 0,
+   "original": "E",
+   "corregido": "Em",
+   "motivo": "Suenan Mi–Sol natural–Si y no Sol#. Es el inicio del cliché Em → Em(maj7) (= Eb+) → Em7 (= G/D) → Em6 con el bajo bajando por semitonos."
+  },
+  {
+   "compas": 61,
+   "offset": 0,
+   "original": "E",
+   "corregido": "Em",
+   "motivo": "Suenan Mi–Sol natural–Si y no Sol#. Es el inicio del cliché Em → Em(maj7) (= Eb+) → Em7 (= G/D) → Em6 con el bajo bajando por semitonos."
+  }
+ ]
+}

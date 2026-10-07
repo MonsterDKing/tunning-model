@@ -1,0 +1,54 @@
+[project]
+name = "acordes-gnn"
+version = "0.1.0"
+description = "Proyecto de aprendizaje: una GNN pequeña (GraphMuse) que reconoce acordes en partituras de PDMX"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # torch para CPU (esta máquina no tiene GPU NVIDIA). La versión está fijada porque las
+    # extensiones nativas de PyG (pyg-lib, torch-scatter…) se compilan para UNA versión de torch.
+    "torch==2.8.0",
+    "torch-geometric>=2.6",
+    "pyg-lib==0.5.0",
+    "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18",
+    "torch-cluster==1.6.3",
+    "graphmuse==0.0.5",
+    "partitura>=1.5",
+    "music21>=9.1",
+    # partitura 1.9 usa np.row_stack, que numpy eliminó en 2.4 → fijamos numpy < 2.4
+    "numpy>=2,<2.4",
+    "tqdm",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[project.scripts]
+explorar-grafo = "acordes_gnn.grafo:main"
+etiquetas = "acordes_gnn.etiquetas:main"
+preparar-datos = "acordes_gnn.dataset:main"
+entrenar = "acordes_gnn.entrenar:main"
+evaluar = "acordes_gnn.evaluar:main"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+# ---- de dónde salen torch y las extensiones de PyG -------------------------------------
+# torch: índice CPU oficial de PyTorch (las ruedas de PyPI traen CUDA y pesan ~2 GB).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.uv]
+# pyg-lib, torch-scatter, torch-sparse y torch-cluster: ruedas precompiladas para torch 2.8.0+cpu.
+# Sin esto uv intentaría compilarlas desde el código fuente (lento y suele fallar).
+find-links = ["https://data.pyg.org/whl/torch-2.8.0+cpu.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

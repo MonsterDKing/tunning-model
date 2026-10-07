@@ -1,0 +1,27 @@
+# Entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Datos: pesados y con licencia propia (PDMX, CC-BY-4.0). Se versionan solo los JSON pequeños
+# que definen los splits y las correcciones; el resto se regenera con `acordes_gnn.datos`.
+data/*
+!data/splits.json
+!data/pdmx/
+data/pdmx/*
+!data/pdmx/muestra30.json
+!data/pdmx/desarrollo20.json
+!data/pdmx/heuristico_dos_manos.json
+!data/pdmx/con_cifrado/
+data/pdmx/con_cifrado/*
+!data/pdmx/con_cifrado/_indice.json
+!data/pdmx/con_cifrado/_dos_manos.json
+!data/xmls_originales/
+data/xmls_originales/*
+!data/xmls_originales/correcciones.json
+
+# Resultados de entrenamiento
+modelos/
+salidas/
+*.log
