@@ -49,6 +49,17 @@ SPLITS = DATOS / "splits.json"
 MAX_RAIZ_AUSENTE = 0.15
 MAX_CONTRADICHOS = 0.05
 
+# Repeticiones de canciones de test/dev que el filtro por ``song_name`` no ve: erratas o nombres
+# distintos para la misma obra. Se encontraron comparando también el campo ``title`` de PDMX.csv
+# (2026-10-07). En la duda, fuera: una fuga infla test sin avisar, y quitar una partitura no cuesta nada.
+MISMA_CANCION_REVISADA = {
+    "Qmf6PErv95W6XRHWfnwo5x8m3XtFfkqZ2Jt5zT69Ss4wPR.musicxml": "«Scool of Velocity op.299 no.1» (errata): test tiene dos del Op. 299",
+    "QmYbCX4wBsX88CHeHAs6Sv3qWWceCX2Ewuj18FTVkiUg2v.musicxml": "«How Great Thou Art b2»: test/dev tiene «How Great Thou Art F»",
+    "QmYe3WJngeNomcdxjjEtHGgVXnjAuySJwPV6LMLUHd6P3S.musicxml": "«Santo»: test/dev tiene «Santo santo grande eterno Dios»",
+    "Qmf62FQ2J9VoFvVvN2GZBf1jd1JadjZfE654LnpRRi3KAR.musicxml": "«Santo»: test/dev tiene «Santo santo grande eterno Dios»",
+    "QmUYarR3EgawzLHDw9UtPGihR2aSL71ybBoGQfXCRuEp9R.musicxml": "«SALMO»: test/dev tiene «Salmo 50B Parte 1»",
+}
+
 
 def ruta_de(nombre: str) -> Path:
     """Ruta de una partitura a partir del nombre que aparece en splits.json."""
@@ -111,7 +122,7 @@ def construir_splits() -> dict:
             descartes["ilegible"].append(a)
         elif f["raiz_ausente"] > MAX_RAIZ_AUSENTE * f["acordes"] or f["contradichos"] > MAX_CONTRADICHOS * f["acordes"]:
             descartes["referencia_poco_confiable"].append(a)
-        elif _normalizar(indice[a]["song_name"]) in titulos_congelados:
+        elif _normalizar(indice[a]["song_name"]) in titulos_congelados or a in MISMA_CANCION_REVISADA:
             descartes["misma_cancion_que_test_dev"].append(a)
         else:
             train.append(a)
@@ -131,7 +142,7 @@ def construir_splits() -> dict:
             continue
         if "<staves>2</staves>" in (CORPUS / a).read_text(errors="ignore"):
             continue  # dos pentagramas con mano izquierda casi vacía: ni lead sheet ni arreglo
-        if _normalizar(indice[a]["song_name"]) not in titulos_congelados:
+        if _normalizar(indice[a]["song_name"]) not in titulos_congelados and a not in MISMA_CANCION_REVISADA:
             lead_sheets.append(a)
 
     # Comprobaciones: nada de test/dev puede filtrarse a otro split

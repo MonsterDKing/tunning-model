@@ -6,7 +6,7 @@
   "descartados_de_train": {
    "ilegible": 42,
    "referencia_poco_confiable": 69,
-   "misma_cancion_que_test_dev": 4
+   "misma_cancion_que_test_dev": 5
   },
   "descartados_detalle": {
    "ilegible": [
@@ -128,6 +128,7 @@
     "QmRGA2Zf9fYKQ1fUVXT569xs5cyv2332BLzXNzv3TcaZYU.musicxml",
     "QmW269YcdqrubCxzkp1dHNy3pftywAAtMAAGrvp1nJQPiE.musicxml",
     "QmbrdXPYHECGyFgbkL8adrnPH8qec9VqGVxxjjTPDyXzGS.musicxml",
+    "Qmf6PErv95W6XRHWfnwo5x8m3XtFfkqZ2Jt5zT69Ss4wPR.musicxml",
     "QmfTQiS1bWyxinVL5mMuX3Z2hFLf8YunWp4M6eLVqFJRp3.musicxml"
    ]
   },
@@ -369,7 +370,6 @@
   "QmeixJwA1tZ6rgwzucP9BYPjdd9meAMCkZULpgpqcnatCx.musicxml",
   "QmewvMo6wKxVNMFxdeEpo3yNrJ7RxQSMCyNyZkyiSwRbgK.musicxml",
   "Qmf4nqjLb9oPqLK8povNzPgcAYFBFPRoHUEn3GzHLhsXE7.musicxml",
-  "Qmf6PErv95W6XRHWfnwo5x8m3XtFfkqZ2Jt5zT69Ss4wPR.musicxml",
   "Qmf7kC6xWEwLoCt5g5pBk2hg85bdjwfFVQekVQJHSjse27.musicxml",
   "QmfCmuBZEAF8Gp4VkybSWkTJUPHBy7DXk33SLbuN7o6Fhk.musicxml",
   "QmfFqHYSSaikEfvsDk7rmR7UKPLX9yUQ7DuLdpRN6L8fUQ.musicxml",
@@ -1666,7 +1666,6 @@
   "QmUWnxdKqK6yJii2GU319xqEyrgRFChVBwJgQR4V15dZvj.musicxml",
   "QmUY9KwNfqt27iuR86fysiBd5sLSUrcgkntyqkF5vdsX1s.musicxml",
   "QmUYR6E9zYRWo15cwdePDwrkPyuH4Spmrxcd8CRTK2xjBc.musicxml",
-  "QmUYarR3EgawzLHDw9UtPGihR2aSL71ybBoGQfXCRuEp9R.musicxml",
   "QmUYo1jUSP9dWDsZfdYRgeZNZJSKac3Lgjyoxy9bMiTFwY.musicxml",
   "QmUZRxHKwHLzmCUaqKwwnkvHeFMad3UifULAUE1ZHYgnvY.musicxml",
   "QmUZjugtbVLNQketthuzSRoMieMJbZsvBtHC2tmKoQRPDR.musicxml",
@@ -2578,7 +2577,6 @@
   "QmYaoN1NnXu1e9W1763S7KkwPe1Dmf2AVQu2V7YmHzpbqh.musicxml",
   "QmYb2tA9kzjkk5LDJFRpEpA9ReyXeTrqo5m4nNgCMKXDvV.musicxml",
   "QmYb59LbrJLECJpFUdjfFhYb3eve6QcAcnqAQrmVR8Gija.musicxml",
-  "QmYbCX4wBsX88CHeHAs6Sv3qWWceCX2Ewuj18FTVkiUg2v.musicxml",
   "QmYbGnttTU4XHRSqvPaPuW2BKgVk66RbWQwtAMn6HGqjJh.musicxml",
   "QmYbHiRdPLGJDXAcqZkZD6R8J7iTL6U68dJEDd2vYb8qSU.musicxml",
   "QmYbM7ynXqHgTQjZ2xRyDoe5MWDbXGTNtTrScHm4xvmM12.musicxml",
@@ -2594,7 +2592,6 @@
   "QmYdQ88FSvrRxqRUuuz4RA38NPGR8jscLmftf4J5RaQ22G.musicxml",
   "QmYdawPi2RpYdTwpVHnxeoftair4AkXbMY2zs3GX28JshE.musicxml",
   "QmYdrdu7VaqhyUpPqSZrRHjepV4FWyRQktQFuh89o65qxT.musicxml",
-  "QmYe3WJngeNomcdxjjEtHGgVXnjAuySJwPV6LMLUHd6P3S.musicxml",
   "QmYe5o87mF3uPwZCzDfXRc1Cd2t7SsnDVNnMgeqpsRKh9j.musicxml",
   "QmYeGYhWGxe2M1LyrXGU1h6sKHYw2nB4tYbv2Hm9xsJ2CG.musicxml",
   "QmYeKSRPncGCK2u4W5y2YkBK22XwfjSvFhgmFNB7gtKfzp.musicxml",
@@ -4001,7 +3998,6 @@
   "Qmf5d4Ceux8JjfewMq3z7rNxY2vLTvR79jLM5fjkrspsPJ.musicxml",
   "Qmf5eXFqSz5HyEPY1ZusUJvJicRXzpt2v8ju3rK3kwABgF.musicxml",
   "Qmf5extsNvBJnmrSCGBH9HNEdqN1w9mATTPfy3SuP7P3TK.musicxml",
-  "Qmf62FQ2J9VoFvVvN2GZBf1jd1JadjZfE654LnpRRi3KAR.musicxml",
   "Qmf6LNq7bMiqiqLwxgjaQ9mii9bDtCe7EBGQ3AMUxVknmz.musicxml",
   "Qmf6VHgyKN6rVaqPENfMtF8Y8xrGimnCq5gnhq4VnRds9Q.musicxml",
   "Qmf6boFta1RBs9P2QmRiu4q5LeS2LkMUgbbwZzy23Qezf4.musicxml",

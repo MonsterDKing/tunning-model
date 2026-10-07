@@ -15,6 +15,13 @@ Al final de cada época se mide en DEV (nunca en test) con la métrica de los pu
 Se guarda el modelo de la época con mejor raíz+calidad en dev (early stopping "a posteriori"):
 si train sigue mejorando y dev empeora, el modelo está memorizando (sobreajuste).
 
+Preentrenar y afinar (fine-tuning)
+---------------------------------
+Con ``--datos lead_sheets`` se entrena con las ~3700 lead sheets de PDMX (solo melodía + cifrado
+humano: 13 veces más acordes que train). Ese modelo ya "sabe" qué melodías van con qué acordes.
+Con ``--partir-de`` otro entrenamiento EMPIEZA con esos pesos en lugar de al azar y los ajusta con
+los arreglos a dos manos, normalmente con un ``--lr`` más bajo para no borrar lo aprendido.
+
 Uso::
 
     uv run entrenar --humo          # 1 época con 5 partituras: comprueba que todo encaja (~segundos)
@@ -22,6 +29,8 @@ Uso::
     uv run entrenar --sin-transposicion --epocas 40   # experimento: ¿cuánto aporta el aumento?
     uv run entrenar --arquitectura metrical           # la MetricalGNN de GraphMuse
     uv run entrenar --arquitectura temporal           # GNN + GRU sobre los ataques (paso 6)
+    uv run entrenar --datos lead_sheets --epocas 20 --salida modelos/pre.pt     # preentrenar
+    uv run entrenar --partir-de modelos/pre.pt --lr 1e-3                          # afinar
     uv run entrenar --no-peso-por-acorde              # pérdida por nota (la original, ~2 puntos peor en dev)
 """
 
@@ -59,6 +68,9 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--semilla", type=int, default=0)
     p.add_argument("--peso-por-acorde", action=argparse.BooleanOptionalAction, default=True,
                    help="cada acorde escrito pesa igual en la pérdida (--no-peso-por-acorde: cada nota)")
+    p.add_argument("--datos", default="dos_manos", choices=["dos_manos", "lead_sheets"],
+                   help="con qué partituras entrenar (lead_sheets: para preentrenar)")
+    p.add_argument("--partir-de", type=Path, help="empezar con los pesos de este modelo (fine-tuning)")
     p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
     # con grafos pequeños, muchos hilos se estorban: 24 hilos fue ~400× más lento que 4 en esta máquina
     p.add_argument("--hilos", type=int, default=4)
@@ -99,7 +111,8 @@ def main(argv=None) -> None:
     fijar_semilla(args.semilla)
     torch.set_num_threads(args.hilos)
 
-    nombres_train, nombres_dev = nombres_de("train"), nombres_de("dev")
+    nombres_train = nombres_de("train" if args.datos == "dos_manos" else "lead_sheets")
+    nombres_dev = nombres_de("dev")
     if args.humo:
         nombres_train, nombres_dev, args.epocas = nombres_train[:5], nombres_dev[:3], 1
         args.salida = args.salida.with_name("humo.pt")
@@ -110,13 +123,22 @@ def main(argv=None) -> None:
         nombres_train = orden[: max(1, round(len(orden) * args.fraccion))]
     train = CorpusAcordes(nombres_train, aumentar=not args.sin_transposicion, semilla=args.semilla)
     dev = CorpusAcordes(nombres_dev)
-    if train.fallidas or dev.fallidas:
+    if train.fallidas and args.datos == "lead_sheets":
+        # unas pocas lead sheets no se pueden leer (preparar-datos lo informa): se saltan
+        print(f"lead sheets sin grafo (se saltan): {len(train.fallidas)}")
+    elif train.fallidas or dev.fallidas:
         raise SystemExit(f"Faltan grafos en caché ({len(train.fallidas) + len(dev.fallidas)}): corre `uv run preparar-datos`")
     cargador = DataLoader(train, batch_size=args.lote, shuffle=True)
 
     metadata = train.piezas[0]["grafo"].metadata()
     modelo = crear_modelo(args.arquitectura, metadata, oculto=args.oculto, capas=args.capas, dropout=args.dropout,
                           clases=NUM_CLASES)  # fmt: skip
+    if args.partir_de:
+        previo = torch.load(args.partir_de, weights_only=False)
+        if previo["config"]["arquitectura"] != args.arquitectura:
+            raise SystemExit(f"{args.partir_de} es {previo['config']['arquitectura']}, no {args.arquitectura}")
+        modelo.load_state_dict(previo["estado"])  # mismos tamaños: falla si cambian --oculto/--capas
+        print(f"partiendo de {args.partir_de.name} (época {previo['epoca']}, dev raíz+cal {previo['dev']['dev_calidad']:.1%})")
     opt = torch.optim.AdamW(modelo.parameters(), lr=args.lr, weight_decay=args.peso_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(args.epocas, 1))
     print(f"train: {len(train)} partituras ({'con' if train.aumentar else 'sin'} transposición) · dev: {len(dev)} · "
@@ -168,7 +190,7 @@ def main(argv=None) -> None:
     destino = RAIZ / "salidas" / f"historial_{args.salida.stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     destino.parent.mkdir(exist_ok=True)
     destino.write_text(json.dumps({"config": vars(args) | {"salida": str(args.salida)}, "historial": historial},
-                                  ensure_ascii=False, indent=1))  # fmt: skip
+                                  ensure_ascii=False, indent=1, default=str))  # fmt: skip
     print(f"\nMejor raíz+calidad en dev: {mejor:.1%} → {args.salida.relative_to(RAIZ)} · historial: {destino.relative_to(RAIZ)}")
 
 
