@@ -60,7 +60,7 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--lote", type=int, default=8, help="partituras por lote")
     p.add_argument("--lr", type=float, default=3e-3)
     p.add_argument("--peso-decay", type=float, default=1e-4)
-    p.add_argument("--oculto", type=int, default=64)
+    p.add_argument("--oculto", type=int, default=128)  # 64 → 86.2 %, 128 → 88.0 %, 256 → 87.9 % en dev (Exp. 7–8)
     p.add_argument("--capas", type=int, default=3)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--arquitectura", default="propio", choices=list(ARQUITECTURAS))

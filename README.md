@@ -20,10 +20,10 @@ Set de prueba congelado (30 partituras de PDMX, 1532 acordes escritos):
 |--------------------------------|-----------|----------------|-------------|
 | Heurístico (Analisis-AI)       | 80.7 %    | 76.2 %         | 83.1 %      |
 | Claude Opus (prompt v3)        | 90.8 %    | 88.4 %         | 92.6 %      |
-| **GNN (este proyecto)**        | **82.5 %**| **79.7 %**     | 81.1 %      |
+| **GNN (este proyecto)**        | **83.8 %**| **81.1 %**     | 82.4 %      |
 
-GNN = media de 3 semillas (40 épocas, pérdida por acorde, rasgos de armadura), medida una sola
-vez al cerrar el Experimento 5 (ver [Experimentos](#experimentos-realizados)).
+GNN = media de 3 semillas (`--oculto 128`, 40 épocas, pérdida por acorde, rasgos de armadura),
+medida al cerrar el Experimento 8 (ver [Experimentos](#experimentos-realizados)).
 
 *raíz + calidad* = raíz y mayor/menor/dim/aum correctos. *Equivalente* = las notas del acorde
 predicho están contenidas en las del escrito o al revés (C ⊆ C7, Am ⊆ Fmaj7).
@@ -150,7 +150,8 @@ uv run entrenar            # 60 épocas (~1,2 s/época en CPU)
 
 - **Modelo** (`ModeloAcordes`): proyección lineal de los 30 rasgos (18 + 12 de grado en la
   armadura) → 3 capas `HeteroConv` con un `SAGEConv` por tipo de arista (13 tipos), conexión
-  residual + `LayerNorm` + dropout → lineal a 60 clases. ~333 000 parámetros. Alternativas:
+  residual + `LayerNorm` + dropout → lineal a 60 clases. Con `--oculto 128` (por defecto),
+  ~1,3 millones de parámetros; con `--oculto 64`, ~333 000. Alternativas:
   `--arquitectura metrical` (la `MetricalGNN` de GraphMuse tal cual) y `--arquitectura temporal`
   (GNN + GRU bidireccional sobre los ataques).
 - **Entrenamiento**: entropía cruzada **pesada por acorde** (cada acorde escrito suma lo mismo,
@@ -209,6 +210,9 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 4 | Grado en la armadura (12 rasgos) | 84.2 % (base 84.2 %) | Sin mejora: la tonalidad no dice cuándo cambia el acorde, ni separa mayor/relativa menor |
 | — | Diagnóstico de fronteras (en train) | — | Se traga los acordes cortos: 69 % de acierto en los de ≤ 1 negra frente a 85 % en los de > 1 compás |
 | 5 | Pérdida pesada por acorde (`pesos_por_acorde`) | **86.6 %** (base 84.2 %) | Mejora real: acordes cortos +6.5 puntos. En test, 79.7 % frente a 78.6 % |
+| 6 | Preentrenar con 3692 lead sheets y afinar (`--datos lead_sheets`, `--partir-de`) | 86.4 % (desde cero 86.2 %) | Sin ganancia: acelera el arranque, pero la melodía sola no enseña la mano izquierda. Con `--lr 1e-3`, peor (83.3 %). Se corrigió una fuga (Op. 299): train 196 → 195 |
+| 7 | Modelo 4× más grande (`--oculto 128`) | **88.0 %** (64: 86.2 %) | El modelo pequeño se quedaba corto. Preentrenar sigue sin ayudar (88.0 %) |
+| 8 | Más ancho (`--oculto 256`) o más profundo (`--capas 4`) | 87.9 % / 87.3 % | Techo: ningún tamaño memoriza (train limpio 82 % < dev 88 %); el límite son las etiquetas de train. En test, 128 saca 81.1 % frente a 80.8 % de 64 |
 
 ### 5. Evaluar en test
 
