@@ -80,6 +80,8 @@ def argumentos(argv=None) -> argparse.Namespace:
                    help="alfa de pesos_por_calidad: >0 da más peso a los acordes raros (dim, aum, sus)")
     p.add_argument("--peso-voz", type=float, default=0.0,
                    help=">0 añade la tarea melodía/acompañamiento (POP909) con este peso en la pérdida")
+    p.add_argument("--con-clasico", action="store_true",
+                   help="añadir a train las obras de piano del corpus clásico de BACHI (análisis de musicólogos)")
     p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
     p.add_argument("--dispositivo", default="auto", choices=["auto", "cpu", "cuda"],
                    help="dónde calcular: auto = la GPU NVIDIA (CUDA) si hay, si no la CPU")
@@ -158,6 +160,8 @@ def main(argv=None) -> None:
     if args.humo:
         nombres_train, nombres_dev, args.epocas = nombres_train[:5], nombres_dev[:3], 1
         args.salida = args.salida.with_name("humo.pt")
+    if args.con_clasico:
+        nombres_train = nombres_train + nombres_de("clasico")
     if args.fraccion < 1.0:
         # Curva de datos: ¿mejora el modelo si le damos más partituras? Con la misma semilla los
         # subconjuntos están anidados (el 25 % está dentro del 50 %…), así solo cambia la cantidad.

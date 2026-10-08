@@ -224,6 +224,8 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 15 | kNN contra las 60 plantillas de acordes | dev 70: 43 % (instante) · 60 % (ventana perfecta) | El tiempo importa, pero lo difícil es qué notas son del acorde; quitar la melodía empeora (la tercera suele estar en la mano derecha) |
 | 16 | Más peso a los acordes raros (`--peso-calidad 0.5`) | dev 70: 83.4 % | aum 33 % → 56 %, dim 27 % → 33 %, pero mayores −4 y global −2 a −3: desequilibrio de clases |
 | 17 | Multitarea melodía/acompañamiento (`--peso-voz 1`, etiquetas del POP909 original alineadas con POP909-CL; `scripts/evaluar_voz.py`) | dev 70: 86.4 % (acordes) | Melodía: F1 63.7 % frente a 52.1 % del *skyline* (acierto 85.8 % frente a 65.0 %). A los acordes no les ayuda |
+| 19 | Comparación con BACHI (ICASSP 2026, estado del arte en acordes simbólicos; 31 M parámetros), en las mismas partituras sin cifrado | — | Test original / ampliado: BACHI-pop 75.0 / 79.6 %, BACHI-clásico 80.9 / 78.5 %, nuestra GNN 84.7 / 85.8 % |
+| 20 | + ~475 obras de piano clásico con análisis de musicólogos (corpus de BACHI: When in Rome + DCML; `clasico.py`, `--con-clasico`) | dev 70: 86.3 % (sin: 86.4 %) | Empate: test 85.2 % / 85.8 % (84.7 / 85.8). Datos de otro estilo ayudan poco con pop. No por defecto |
 
 ### 5. Evaluar en test
 
@@ -311,7 +313,10 @@ Symbolic Chord Recognition Through Masked Iterative Decoding on Pop and Classica
 [POP909-CL-Dataset](https://github.com/AndyWeasley2004/POP909-CL-Dataset) (licencia **MIT**), sobre
 POP909 (Wang, Z., Chen, K. et al., ISMIR 2020). 909 canciones pop para piano en MIDI con acordes
 corregidos por humanos; se leen con `pop909.py` (`git clone` en `data/pop909cl/`, fuera de git).
-Ninguna repite canción de los exámenes (comprobado con su `index.xlsx`). Para la tarea de melodía
+Ninguna repite canción de los exámenes (comprobado con su `index.xlsx`). El mismo repositorio de
+BACHI en Hugging Face ([Itsuki-music/BACHI_Chord_Recognition](https://huggingface.co/datasets/Itsuki-music/BACHI_Chord_Recognition),
+MIT; corpus de origen *When in Rome*, CC-BY-SA, y DCML, CC-BY-NC-SA) trae obras clásicas con análisis
+armónico humano: se leen con `clasico.py` (`data/bachi/hf/`, fuera de git). Para la tarea de melodía
 se usa además el POP909 original (`data/pop909_original/`, [music-x-lab/POP909-Dataset](https://github.com/music-x-lab/POP909-Dataset)),
 que separa MELODY, BRIDGE y PIANO.
 

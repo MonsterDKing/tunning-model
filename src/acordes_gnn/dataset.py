@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from acordes_gnn.datos import DATOS, PREFIJO_POP909, cargar_splits, ruta_de
+from acordes_gnn.datos import DATOS, PREFIJO_CLASICO, PREFIJO_POP909, cargar_splits, ruta_de
 from acordes_gnn.etiquetas import SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
 
 CACHE = DATOS / "cache"
@@ -65,7 +65,10 @@ def nombres_de(split: str, splits: dict | None = None) -> list[str]:
 
 
 def _ruta_cache(nombre: str) -> Path:
-    return CACHE / (Path(nombre).stem + ".pt")
+    # Solo se quita una extensión de partitura real: Path(...).stem tomaría ".10_12" de "Op.10_12"
+    # como extensión y varias obras acabarían en el mismo archivo de caché.
+    base = nombre.rsplit(".", 1)[0] if nombre.lower().endswith((".musicxml", ".mxl", ".xml", ".mid", ".midi")) else nombre
+    return CACHE / (base + ".pt")
 
 
 def procesar(nombre: str) -> dict:
@@ -73,7 +76,15 @@ def procesar(nombre: str) -> dict:
     from acordes_gnn.grafo import construir_grafo, leer_notas
 
     ruta = ruta_de(nombre)
-    if nombre.startswith(PREFIJO_POP909):
+    if nombre.startswith(PREFIJO_CLASICO):
+        from acordes_gnn.clasico import leer_clasico
+
+        notas, acordes, sil_t = leer_clasico(ruta)
+        if not acordes:
+            raise ValueError("sin acordes")
+        ubicar(acordes, notas.inicios_compas)
+        voz = None
+    elif nombre.startswith(PREFIJO_POP909):
         from acordes_gnn.pop909 import etiquetas_voz, leer_pop909
 
         notas, acordes, sil_t = leer_pop909(ruta)  # los "sin acorde" ya vienen en tiempo
