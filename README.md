@@ -20,10 +20,12 @@ Set de prueba congelado (30 partituras de PDMX, 1532 acordes escritos):
 |--------------------------------|-----------|----------------|-------------|
 | Heurístico (Analisis-AI)       | 80.7 %    | 76.2 %         | 83.1 %      |
 | Claude Opus (prompt v3)        | 90.8 %    | 88.4 %         | 92.6 %      |
-| **GNN (este proyecto)**        | **85.1 %**| **82.6 %**     | **83.6 %**  |
+| **GNN (este proyecto)**        | **87.2 %**| **84.7 %**     | **85.8 %**  |
 
-GNN = media de 3 semillas (`--oculto 256`, 40 épocas, pérdida por acorde, rasgos de armadura,
-461 partituras de train), medida al cerrar el Experimento 9 (ver [Experimentos](#experimentos-realizados)).
+GNN = media de 3 semillas del mejor modelo (Experimento 13: `--datos todo_pop909 --peso-dos-manos 10
+--oculto 256 --epocas 10`, entrenado en la RTX 4090), medida al cerrar el experimento (ver
+[Experimentos](#experimentos-realizados)). En el test ampliado (100 partituras más, 4067 acordes):
+raíz 88.9 %, raíz+calidad 85.8 %, equivalente 89.0 %, frente a 87.2 % / 83.6 % / 87.9 % del heurístico.
 
 *raíz + calidad* = raíz y mayor/menor/dim/aum correctos. *Equivalente* = las notas del acorde
 predicho están contenidas en las del escrito o al revés (C ⊆ C7, Am ⊆ Fmaj7).
@@ -217,6 +219,7 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 10 | Todo PDMX con cifrado: 461 a dos manos + 23 400 lead sheets (`--datos todo`), 10 épocas en la RTX 4090 | 86.0 % (sin peso) / **90.3 %** (`--peso-dos-manos 10`) | Mezclar sin más empeora; con más peso para las de dos manos mejora un poco. En test: 83.4 % frente a 82.6 % |
 | 11 | Exámenes ampliados: test +100 y dev +50 (de las nuevas, por canción); train 461 → 310 | — | El heurístico saca 76.2 % en el test original y 83.6 % en el ampliado: con 30 partituras la cifra depende mucho de cuáles tocaron. Desde aquí se decide con dev 70 |
 | 12 | +905 canciones de POP909-CL (`--datos dos_manos_pop909`) | dev 70: 85.7 % (sin: 84.9 %) | Mejora en los tres conjuntos: test original 83.3 % (81.6 %), test ampliado 85.3 % (84.7 %; heurístico 83.6 %) |
+| 13 | Todo junto: 310 a dos manos ×10 + 905 POP909 + 23 400 lead sheets (`--datos todo_pop909`), 10 épocas en la RTX 4090 | dev 70: **86.4 %** | Mejor modelo: test original 84.7 %, test ampliado 85.8 %, los 130 juntos 85.5 % (raíz 88.4 %) |
 
 ### 5. Evaluar en test
 
@@ -320,6 +323,13 @@ Descartados de train: 42 ilegibles, 69 con referencia poco confiable, 4 por repe
 test/dev (3 de *School of Velocity Op. 299* y un *Shallow*). Las 62 partituras de dos pentagramas
 con la mano izquierda casi vacía no van a ningún split. `datos.py` comprueba que los splits no se
 solapan. En total: train 97 682 notas / 8245 acordes escritos; dev 12 064 / 1099; test 20 333 / 1532.
+
+## Cuaderno paso a paso
+
+`notebooks/paso_a_paso.ipynb` recorre todo el proceso con una partitura de dev («Believer»): notas y
+acordes escritos, el grafo y los rasgos de una nota, las etiquetas, el modelo sin entrenar, un
+entrenamiento en directo de segundos en la CPU, el mejor modelo compás a compás y sus errores
+típicos. Se abre con `uv run jupyter lab` (JupyterLab y matplotlib están en el grupo `dev`).
 
 ## Instalación
 
