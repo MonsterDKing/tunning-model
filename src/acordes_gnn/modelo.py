@@ -98,11 +98,11 @@ class ModeloTemporal(ModeloAcordes):
     def forward(self, x_dict: dict, edge_index_dict: dict, onset=None, pieza=None) -> torch.Tensor:
         h = self.codificar(x_dict, edge_index_dict)
         if pieza is None:  # una sola partitura (evaluación): todas sus notas son de la pieza 0
-            pieza = torch.zeros(len(h), dtype=torch.long)
+            pieza = torch.zeros(len(h), dtype=torch.long, device=h.device)
         ataque, conteos = agrupar_por_ataque(onset, pieza)
         # 1. media de las notas de cada ataque
-        suma = torch.zeros(sum(conteos), h.size(1)).index_add_(0, ataque, h)
-        cuantas = torch.zeros(sum(conteos)).index_add_(0, ataque, torch.ones(len(h)))
+        suma = torch.zeros(sum(conteos), h.size(1), device=h.device).index_add_(0, ataque, h)
+        cuantas = torch.zeros(sum(conteos), device=h.device).index_add_(0, ataque, torch.ones(len(h), device=h.device))
         por_ataque = suma / cuantas[:, None]
         # 2. la GRU recorre cada pieza por separado (no debe "recordar" la partitura anterior del lote)
         contexto = torch.cat([self.gru(secuencia[None])[0][0] for secuencia in por_ataque.split(conteos)])

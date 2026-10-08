@@ -68,10 +68,17 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--semilla", type=int, default=0)
     p.add_argument("--peso-por-acorde", action=argparse.BooleanOptionalAction, default=True,
                    help="cada acorde escrito pesa igual en la pérdida (--no-peso-por-acorde: cada nota)")
-    p.add_argument("--datos", default="dos_manos", choices=["dos_manos", "lead_sheets"],
-                   help="con qué partituras entrenar (lead_sheets: para preentrenar)")
+    p.add_argument("--datos", default="dos_manos", choices=["dos_manos", "dos_manos_antiguo", "dos_manos_pop909", "lead_sheets", "lead_sheets_todas", "todo",
+                            "todo_pop909"],
+                   help="con qué partituras entrenar (lead_sheets: para preentrenar; todo: dos manos + todas las lead sheets)")
+    p.add_argument("--dev", default="dev_todo", choices=["dev", "dev_todo"],
+                   help="con qué partituras elegir la mejor época (dev_todo = dev 20 + dev ampliado 50)")
+    p.add_argument("--peso-dos-manos", type=int, default=1,
+                   help="con --datos todo: cuántas veces aparece cada partitura a dos manos por época")
     p.add_argument("--partir-de", type=Path, help="empezar con los pesos de este modelo (fine-tuning)")
     p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
+    p.add_argument("--dispositivo", default="auto", choices=["auto", "cpu", "cuda"],
+                   help="dónde calcular: auto = la GPU NVIDIA (CUDA) si hay, si no la CPU")
     # con grafos pequeños, muchos hilos se estorban: 24 hilos fue ~400× más lento que 4 en esta máquina
     p.add_argument("--hilos", type=int, default=4)
     p.add_argument("--salida", type=Path, default=RAIZ / "modelos" / "mejor.pt")
@@ -110,9 +117,22 @@ def main(argv=None) -> None:
     args.salida = args.salida.resolve()
     fijar_semilla(args.semilla)
     torch.set_num_threads(args.hilos)
+    if args.dispositivo == "auto":
+        args.dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
+    dispositivo = torch.device(args.dispositivo)
 
-    nombres_train = nombres_de("train" if args.datos == "dos_manos" else "lead_sheets")
-    nombres_dev = nombres_de("dev")
+    if args.datos == "todo_pop909":
+        # PDMX a dos manos ×K (las que más se parecen a test) + POP909 ×1 (piano pop, ya son muchas) + lead sheets
+        nombres_train = (nombres_de("train") * args.peso_dos_manos + nombres_de("pop909")
+                         + nombres_de("lead_sheets_todas"))  # fmt: skip
+    elif args.datos == "todo":
+        # Las ~23 500 lead sheets ahogarían a las 461 partituras a dos manos (las que se parecen a test):
+        # --peso-dos-manos K hace que cada una aparezca K veces por época
+        nombres_train = nombres_de("train") * args.peso_dos_manos + nombres_de("lead_sheets_todas")
+    else:
+        nombres_train = nombres_de({"dos_manos": "train", "dos_manos_antiguo": "train_antiguo", "dos_manos_pop909": "train_pop909",
+                                    "lead_sheets": "lead_sheets", "lead_sheets_todas": "lead_sheets_todas"}[args.datos])  # fmt: skip
+    nombres_dev = nombres_de(args.dev)
     if args.humo:
         nombres_train, nombres_dev, args.epocas = nombres_train[:5], nombres_dev[:3], 1
         args.salida = args.salida.with_name("humo.pt")
@@ -123,7 +143,7 @@ def main(argv=None) -> None:
         nombres_train = orden[: max(1, round(len(orden) * args.fraccion))]
     train = CorpusAcordes(nombres_train, aumentar=not args.sin_transposicion, semilla=args.semilla)
     dev = CorpusAcordes(nombres_dev)
-    if train.fallidas and args.datos == "lead_sheets":
+    if train.fallidas and args.datos != "dos_manos":
         # unas pocas lead sheets no se pueden leer (preparar-datos lo informa): se saltan
         print(f"lead sheets sin grafo (se saltan): {len(train.fallidas)}")
     elif train.fallidas or dev.fallidas:
@@ -134,15 +154,19 @@ def main(argv=None) -> None:
     modelo = crear_modelo(args.arquitectura, metadata, oculto=args.oculto, capas=args.capas, dropout=args.dropout,
                           clases=NUM_CLASES)  # fmt: skip
     if args.partir_de:
-        previo = torch.load(args.partir_de, weights_only=False)
+        previo = torch.load(args.partir_de, weights_only=False, map_location="cpu")
         if previo["config"]["arquitectura"] != args.arquitectura:
             raise SystemExit(f"{args.partir_de} es {previo['config']['arquitectura']}, no {args.arquitectura}")
         modelo.load_state_dict(previo["estado"])  # mismos tamaños: falla si cambian --oculto/--capas
         print(f"partiendo de {args.partir_de.name} (época {previo['epoca']}, dev raíz+cal {previo['dev']['dev_calidad']:.1%})")
+    # La GPU necesita tener a mano el modelo y los datos: se mueven una vez (modelo, dev) o por lote
+    modelo.to(dispositivo)
+    for p in dev.piezas:
+        p["grafo"] = p["grafo"].to(dispositivo)
     opt = torch.optim.AdamW(modelo.parameters(), lr=args.lr, weight_decay=args.peso_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(args.epocas, 1))
     print(f"train: {len(train)} partituras ({'con' if train.aumentar else 'sin'} transposición) · dev: {len(dev)} · "
-          f"modelo {args.arquitectura}: {contar_parametros(modelo):,} parámetros")  # fmt: skip
+          f"modelo {args.arquitectura}: {contar_parametros(modelo):,} parámetros · {dispositivo}")  # fmt: skip
 
     historial, mejor = [], -1.0
     args.salida.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +175,7 @@ def main(argv=None) -> None:
         modelo.train()
         suma, n_ok, n_tot, n_lotes = 0.0, 0, 0, 0
         for lote in cargador:
+            lote = lote.to(dispositivo)
             # onset y pieza (de qué partitura del lote es cada nota) los usa el modelo temporal
             logits = modelo(lote.x_dict, lote.edge_index_dict, onset=lote["note"].onset_q, pieza=lote["note"].batch)
             y = lote["note"].y

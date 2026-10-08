@@ -20,10 +20,10 @@ Set de prueba congelado (30 partituras de PDMX, 1532 acordes escritos):
 |--------------------------------|-----------|----------------|-------------|
 | Heurístico (Analisis-AI)       | 80.7 %    | 76.2 %         | 83.1 %      |
 | Claude Opus (prompt v3)        | 90.8 %    | 88.4 %         | 92.6 %      |
-| **GNN (este proyecto)**        | **83.8 %**| **81.1 %**     | 82.4 %      |
+| **GNN (este proyecto)**        | **85.1 %**| **82.6 %**     | **83.6 %**  |
 
-GNN = media de 3 semillas (`--oculto 128`, 40 épocas, pérdida por acorde, rasgos de armadura),
-medida al cerrar el Experimento 8 (ver [Experimentos](#experimentos-realizados)).
+GNN = media de 3 semillas (`--oculto 256`, 40 épocas, pérdida por acorde, rasgos de armadura,
+461 partituras de train), medida al cerrar el Experimento 9 (ver [Experimentos](#experimentos-realizados)).
 
 *raíz + calidad* = raíz y mayor/menor/dim/aum correctos. *Equivalente* = las notas del acorde
 predicho están contenidas en las del escrito o al revés (C ⊆ C7, Am ⊆ Fmaj7).
@@ -213,6 +213,10 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 6 | Preentrenar con 3692 lead sheets y afinar (`--datos lead_sheets`, `--partir-de`) | 86.4 % (desde cero 86.2 %) | Sin ganancia: acelera el arranque, pero la melodía sola no enseña la mano izquierda. Con `--lr 1e-3`, peor (83.3 %). Se corrigió una fuga (Op. 299): train 196 → 195 |
 | 7 | Modelo 4× más grande (`--oculto 128`) | **88.0 %** (64: 86.2 %) | El modelo pequeño se quedaba corto. Preentrenar sigue sin ayudar (88.0 %) |
 | 8 | Más ancho (`--oculto 256`) o más profundo (`--capas 4`) | 87.9 % / 87.3 % | Techo: ningún tamaño memoriza (train limpio 82 % < dev 88 %); el límite son las etiquetas de train. En test, 128 saca 81.1 % frente a 80.8 % de 64 |
+| 9 | +266 partituras a dos manos del PDMX completo (train 195 → 461; `scripts/buscar_cifrado_pdmx.py`, `extraer_pdmx.py`, `auditar_pdmx.py`) | **89.2 %** (128) / **89.5 %** (256) | Más datos del mismo tipo sí ayudan, y con ellos el modelo grande empieza a rendir. En test: 82.5 % / 82.6 % (antes 81.1 %); supera al heurístico en las tres métricas |
+| 10 | Todo PDMX con cifrado: 461 a dos manos + 23 400 lead sheets (`--datos todo`), 10 épocas en la RTX 4090 | 86.0 % (sin peso) / **90.3 %** (`--peso-dos-manos 10`) | Mezclar sin más empeora; con más peso para las de dos manos mejora un poco. En test: 83.4 % frente a 82.6 % |
+| 11 | Exámenes ampliados: test +100 y dev +50 (de las nuevas, por canción); train 461 → 310 | — | El heurístico saca 76.2 % en el test original y 83.6 % en el ampliado: con 30 partituras la cifra depende mucho de cuáles tocaron. Desde aquí se decide con dev 70 |
+| 12 | +905 canciones de POP909-CL (`--datos dos_manos_pop909`) | dev 70: 85.7 % (sin: 84.9 %) | Mejora en los tres conjuntos: test original 83.3 % (81.6 %), test ampliado 85.3 % (84.7 %; heurístico 83.6 %) |
 
 ### 5. Evaluar en test
 
@@ -290,14 +294,27 @@ Los datos se copiaron del proyecto Analisis-AI (que no se modifica). Para rehace
 (2024), [arXiv:2409.10831](https://arxiv.org/abs/2409.10831), datos en
 [Zenodo (record 15571083)](https://zenodo.org/records/15571083). Licencia **CC-BY-4.0**. Las
 partituras de PDMX son de dominio público o CC; este proyecto usa un subconjunto (piano con
-cifrado `<harmony>`) y no redistribuye los archivos (están fuera de git).
+cifrado `<harmony>`) y no redistribuye los archivos (están fuera de git). Analisis-AI solo tenía
+4132 de las 26 354 partituras de PDMX con cifrado; el resto sale de recorrer el PDMX completo
+(`mxl.tar.gz`) con `scripts/buscar_cifrado_pdmx.py` → `extraer_pdmx.py` → `auditar_pdmx.py`.
+
+**POP909-CL** — Yao, M., Chen, K., Dubnov, S. & Berg-Kirkpatrick, T. (2026), *BACHI: Boundary-Aware
+Symbolic Chord Recognition Through Masked Iterative Decoding on Pop and Classical Music*, ICASSP,
+[arXiv:2510.06528](https://arxiv.org/abs/2510.06528), datos en
+[POP909-CL-Dataset](https://github.com/AndyWeasley2004/POP909-CL-Dataset) (licencia **MIT**), sobre
+POP909 (Wang, Z., Chen, K. et al., ISMIR 2020). 909 canciones pop para piano en MIDI con acordes
+corregidos por humanos; se leen con `pop909.py` (`git clone` en `data/pop909cl/`, fuera de git).
+Ninguna repite canción de los exámenes (comprobado con su `index.xlsx`).
 
 | conjunto   | partituras | criterio |
 |------------|-----------:|----------|
 | test       | 30   | `muestra30.json`: el set de prueba con el que se midieron heurístico y Claude. **Congelado.** |
-| dev        | 20   | `desarrollo20.json`: para elegir hiperparámetros y la mejor época. |
-| train      | 188 + 8 | arreglos a dos manos legibles (el heurístico pudo leerlos), con referencia confiable (`raiz_ausente` ≤ 15 % y `contradichos` ≤ 5 % de los acordes) y que no repiten canción de test/dev; + 8 de las 9 originales de Analisis-AI (`Shallow` queda fuera: está en test). |
-| lead_sheets| 3714 | un solo pentagrama; no se usan por defecto (preentrenamiento opcional). |
+| test_ampliado | 100 | sacadas de las nuevas de PDMX, por canción, al azar (semilla 0): examen más grande. |
+| dev        | 20   | `desarrollo20.json`. |
+| dev_ampliado | 50 | ídem. `--dev dev_todo` (por defecto) elige la época con dev + dev_ampliado (70). |
+| train      | 187 + 8 + 115 | arreglos a dos manos legibles, con referencia confiable (`raiz_ausente` ≤ 15 % y `contradichos` ≤ 5 % de los acordes) y que no repiten canción de los exámenes: 187 de PDMX (Analisis-AI), 8 originales de Analisis-AI (`Shallow` queda fuera: está en test) y 115 nuevas del PDMX completo. |
+| pop909     | 905  | POP909-CL (sin 518 y 620, con etiquetas del algoritmo, ni 2 archivos incompletos). `--datos dos_manos_pop909`. |
+| lead_sheets(_nuevas) | 3690 + 19 706 | un solo pentagrama, sin canciones de los exámenes. Solo con `--datos todo` / `todo_pop909`. |
 
 Descartados de train: 42 ilegibles, 69 con referencia poco confiable, 4 por repetir canción de
 test/dev (3 de *School of Velocity Op. 299* y un *Shallow*). Las 62 partituras de dos pentagramas
@@ -328,6 +345,14 @@ Por qué así (ver `pyproject.toml`):
 - **Hilos**: `entrenar` usa 4 hilos por defecto. Con los 24 núcleos, cada paso fue ~400× más
   lento (los grafos son pequeños y la sincronización entre hilos domina).
 
+**RTX 4090 (Windows, 192.168.1.114)**: `uv run entrenar` usa la GPU sola si la hay
+(`--dispositivo auto`). Allí no se instalan graphmuse ni pyg-lib (no hay ruedas para Windows):
+basta con copiar `data/cache/` y entrenar con torch (cu128) + torch_geometric + numpy en un
+`python -m venv` normal (el venv de `uv` falla por SSH: el Python que gestiona uv está detrás de
+un *junction* que Windows no deja recorrer). Una época del modelo de 256 tarda ~4,7 s frente a
+~45 s en la CPU de esta máquina; con la GPU, 128 y 256 tardan casi lo mismo. Los modelos se
+cargan siempre en CPU (`map_location`), así que se evalúan aquí.
+
 **Mac Studio M4 Max (48 GB)**, disponible por SSH: opción futura para modelos más grandes. Torch
 tiene backend MPS en Apple Silicon, pero no todas las operaciones de PyG lo soportan y las
 extensiones nativas (torch-scatter/sparse, pyg-lib) puede que haya que compilarlas allí (no se
@@ -352,5 +377,9 @@ ha probado). Con modelos de este tamaño la CPU de esta máquina basta (una épo
   Onset-wise Predictions from Note-wise Features* (ChordGNN). ISMIR. arXiv:2307.03544
 - Long, P. et al. (2024). *PDMX: A Large-Scale Public Domain MusicXML Dataset for Symbolic Music
   Processing*. arXiv:2409.10831
+- Yao, M., Chen, K., Dubnov, S. & Berg-Kirkpatrick, T. (2026). *BACHI* (POP909-CL). ICASSP.
+  arXiv:2510.06528
+- Wang, Z., Chen, K. et al. (2020). *POP909: A Pop-song Dataset for Music Arrangement Generation*.
+  ISMIR.
 - Pardo, B. & Birmingham, W. (2002). *Algorithms for Chordal Analysis* — el método de plantillas
   del heurístico.

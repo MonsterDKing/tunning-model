@@ -20,6 +20,19 @@ Criterios de los splits (todo con partituras de piano de PDMX con cifrado humano
 - **originales** = las 9 partituras de ``xmls/`` de Analisis-AI que traen cifrado y notas (con las
   correcciones de ``correcciones.json``). Se usan como train extra salvo las que repiten una
   canción de test/dev (``Shallow`` está en test).
+- **train_nuevas** = arreglos a dos manos con cifrado que NO estaban en el corpus de Analisis-AI:
+  salen de recorrer el PDMX completo (``scripts/buscar_cifrado_pdmx.py`` → ``extraer_pdmx.py`` →
+  ``auditar_pdmx.py``). Mismo criterio de referencia confiable y sin repetir canción de test/dev
+  (``nuevas_auditoria.json``). Van a train: ``nombres_de("train")`` las incluye.
+- **test_ampliado** (100) y **dev_ampliado** (50) = exámenes extra sacados de las nuevas, para medir
+  con menos ruido (test 30 y dev 20 son pequeños: una partitura rara mueve el resultado). Se reparte
+  POR CANCIÓN (todos los arreglos de una canción van al mismo lado) y solo canciones que no están
+  en el resto de train; al azar con semilla fija. test y dev de Analisis-AI no cambian.
+- **pop909** = las canciones de POP909-CL (MIDI de piano pop con acordes corregidos por humanos, ver
+  ``pop909.py``) salvo 518 y 620 (etiquetas del algoritmo). Solo para ``--datos dos_manos_pop909``.
+- **lead_sheets_nuevas** = las ~19 800 lead sheets del PDMX completo que no estaban en el corpus de
+  Analisis-AI, sin las que repiten canción de test/dev (``lead_nuevas.json``). Solo para
+  ``--datos todo`` / ``lead_sheets_todas``.
 - **lead_sheets** = partituras de un solo pentagrama (solo melodía + cifrado). No entran en el
   entrenamiento por defecto; quedan listadas para un posible preentrenamiento (paso opcional).
   Las 62 de dos pentagramas que no están en ``_dos_manos.json`` (mano izquierda casi vacía) no
@@ -35,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import shutil
 from pathlib import Path
@@ -43,8 +57,15 @@ RAIZ = Path(__file__).resolve().parents[2]
 DATOS = RAIZ / "data"
 PDMX = DATOS / "pdmx"
 CORPUS = PDMX / "con_cifrado"
+NUEVAS = PDMX / "nuevas"  # extraídas del PDMX completo (scripts/extraer_pdmx.py)
+NUEVAS_LEAD = PDMX / "nuevas_lead"  # ídem, lead sheets
 ORIGINALES = DATOS / "xmls_originales"
+POP909 = DATOS / "pop909cl" / "POP909_processed"  # git clone de POP909-CL-Dataset
+PREFIJO_POP909 = "pop909_"  # en splits.json: "pop909_001.mid" → POP909 / "001.mid"
+POP909_EXCLUIDAS = {"518.mid", "620.mid"}  # conservan etiquetas del algoritmo (README de POP909-CL)
 SPLITS = DATOS / "splits.json"
+
+TAMANO_TEST_AMPLIADO, TAMANO_DEV_AMPLIADO, SEMILLA_EXAMENES = 100, 50, 0
 
 MAX_RAIZ_AUSENTE = 0.15
 MAX_CONTRADICHOS = 0.05
@@ -63,8 +84,12 @@ MISMA_CANCION_REVISADA = {
 
 def ruta_de(nombre: str) -> Path:
     """Ruta de una partitura a partir del nombre que aparece en splits.json."""
-    r = CORPUS / nombre
-    return r if r.exists() else ORIGINALES / nombre
+    if nombre.startswith(PREFIJO_POP909):
+        return POP909 / nombre.removeprefix(PREFIJO_POP909)
+    for carpeta in (CORPUS, NUEVAS, NUEVAS_LEAD):
+        if (carpeta / nombre).exists():
+            return carpeta / nombre
+    return ORIGINALES / nombre
 
 
 def cargar_splits() -> dict:
@@ -145,9 +170,68 @@ def construir_splits() -> dict:
         if _normalizar(indice[a]["song_name"]) not in titulos_congelados and a not in MISMA_CANCION_REVISADA:
             lead_sheets.append(a)
 
+    # Partituras nuevas del PDMX completo: mismo criterio que train, auditadas por scripts/auditar_pdmx.py
+    train_nuevas, nuevas_descartes = [], {"ilegible": 0, "referencia_poco_confiable": 0, "misma_cancion_que_test_dev": 0}
+    auditoria_nuevas = PDMX / "nuevas_auditoria.json"
+    if auditoria_nuevas.exists():
+        for a, f in sorted(json.loads(auditoria_nuevas.read_text()).items()):
+            if "error" in f:
+                nuevas_descartes["ilegible"] += 1
+            elif f["raiz_ausente"] > MAX_RAIZ_AUSENTE * f["acordes"] or f["contradichos"] > MAX_CONTRADICHOS * f["acordes"]:
+                nuevas_descartes["referencia_poco_confiable"] += 1
+            elif f["misma_cancion_que_test_dev"] or a in MISMA_CANCION_REVISADA:
+                nuevas_descartes["misma_cancion_que_test_dev"] += 1
+            else:
+                train_nuevas.append(a)
+
+    # Exámenes ampliados: se sacan de train_nuevas, por canción, sin canciones que sigan en train
+    test_ampliado, dev_ampliado = [], []
+    if train_nuevas:
+        titulos_nuevas = {a: f["titulo"] for a, f in json.loads(auditoria_nuevas.read_text()).items()}
+        titulos_train = {_normalizar(indice[a]["song_name"]) for a in train} | {
+            _normalizar(r.split("_", 1)[-1].rsplit(".", 1)[0]) for r in originales}
+        titulos_train.discard("")
+        grupos: dict[str, list[str]] = {}
+        for a in train_nuevas:
+            grupos.setdefault(_normalizar(titulos_nuevas[a]) or a, []).append(a)  # sin título: grupo propio
+
+        def en_train(t: str) -> bool:
+            return t in titulos_train or any(c in t or t in c for c in titulos_train if len(c) >= 6 and len(t) >= 6)
+
+        claves = sorted(k for k in grupos if not en_train(k))
+        random.Random(SEMILLA_EXAMENES).shuffle(claves)
+        for k in claves:
+            if len(test_ampliado) < TAMANO_TEST_AMPLIADO:
+                test_ampliado += grupos[k]
+            elif len(dev_ampliado) < TAMANO_DEV_AMPLIADO:
+                dev_ampliado += grupos[k]
+        examen = set(test_ampliado) | set(dev_ampliado)
+        titulos_examen = {_normalizar(titulos_nuevas[a]) for a in examen} - {""}
+
+        def como_examen(t: str) -> bool:  # misma canción que un examen ampliado (exacta o contenida)
+            return bool(t) and (t in titulos_examen or any(c in t or t in c for c in titulos_examen if len(c) >= 6 and len(t) >= 6))
+
+        # fuera de train lo que es examen y lo que se le parece (títulos casi iguales en grupos distintos)
+        train_nuevas = [a for a in train_nuevas if a not in examen and not como_examen(_normalizar(titulos_nuevas[a]))]
+
+    lead_nuevas_json = PDMX / "lead_nuevas.json"
+    lead_sheets_nuevas = []
+    if lead_nuevas_json.exists():
+        lead_sheets_nuevas = [a for a, f in sorted(json.loads(lead_nuevas_json.read_text()).items())
+                              if not f["misma_cancion_que_test_dev"] and a not in MISMA_CANCION_REVISADA]  # fmt: skip
+        if test_ampliado:  # tampoco canciones de los exámenes ampliados
+            lead_titulos = json.loads(lead_nuevas_json.read_text())
+            lead_sheets_nuevas = [a for a in lead_sheets_nuevas if not como_examen(_normalizar(lead_titulos[a]["titulo"]))]
+    if test_ampliado:
+        lead_sheets = [a for a in lead_sheets if not como_examen(_normalizar(indice[a]["song_name"]))]
+
+    pop909 = sorted(PREFIJO_POP909 + r.name for r in POP909.glob("*.mid") if r.name not in POP909_EXCLUIDAS)
+
     # Comprobaciones: nada de test/dev puede filtrarse a otro split
     conjuntos = {"test": set(test), "dev": set(dev), "train": set(train), "originales": set(originales),
-                 "lead_sheets": set(lead_sheets)}  # fmt: skip
+                 "lead_sheets": set(lead_sheets), "train_nuevas": set(train_nuevas),
+                 "lead_sheets_nuevas": set(lead_sheets_nuevas), "test_ampliado": set(test_ampliado),
+                 "dev_ampliado": set(dev_ampliado), "pop909": set(pop909)}  # fmt: skip
     nombres = list(conjuntos)
     for i, a in enumerate(nombres):
         for b in nombres[i + 1 :]:
@@ -169,12 +253,18 @@ def construir_splits() -> dict:
             "descartados_de_train": {k: len(v) for k, v in descartes.items()},
             "descartados_detalle": descartes,
             "originales_fuera_por_repetir_cancion": originales_fuera,
+            "descartados_de_train_nuevas": nuevas_descartes,
         },
         "test": test,
         "dev": dev,
         "train": train,
         "originales": originales,
+        "train_nuevas": train_nuevas,
+        "test_ampliado": sorted(test_ampliado),
+        "dev_ampliado": sorted(dev_ampliado),
         "lead_sheets": lead_sheets,
+        "lead_sheets_nuevas": lead_sheets_nuevas,
+        "pop909": pop909,
     }
 
 
@@ -186,7 +276,8 @@ def main() -> None:
         copiar(args.copiar_desde.resolve())
     splits = construir_splits()
     SPLITS.write_text(json.dumps(splits, ensure_ascii=False, indent=1) + "\n")
-    for k in ("test", "dev", "train", "originales", "lead_sheets"):
+    for k in ("test", "dev", "test_ampliado", "dev_ampliado", "train", "originales", "train_nuevas",
+              "lead_sheets", "lead_sheets_nuevas", "pop909"):
         print(f"{k:12} {len(splits[k]):5d} partituras")
     print("descartados de train:", splits["criterios"]["descartados_de_train"])
     print("originales fuera:", splits["criterios"]["originales_fuera_por_repetir_cancion"])

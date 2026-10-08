@@ -100,7 +100,9 @@ def evaluar_piezas(modelo: torch.nn.Module, piezas: list[dict], detalle: bool = 
         con = y >= 0
         total["notas"] += int(con.sum())
         total["notas_ok"] += int((logits.argmax(-1)[con] == y[con]).sum())
-        preds = predecir_en_puntos(prob, g["note"].onset_q, g["note"].dur_q, [a["tiempo"] for a in p["acordes"]])
+        # predecir_en_puntos recorre los acordes uno a uno: en GPU cada uno esperaría a la tarjeta,
+        # así que se traen las probabilidades a la CPU UNA vez por partitura
+        preds = predecir_en_puntos(prob.cpu(), g["note"].onset_q.cpu(), g["note"].dur_q.cpu(), [a["tiempo"] for a in p["acordes"]])
         c = Counter()
         fallos = []
         for pred, ref in zip(preds, p["acordes"]):
@@ -126,7 +128,7 @@ def evaluar_piezas(modelo: torch.nn.Module, piezas: list[dict], detalle: bool = 
 def cargar_modelo(ruta: Path):
     from acordes_gnn.modelo import crear_modelo
 
-    ck = torch.load(ruta, weights_only=False)
+    ck = torch.load(ruta, weights_only=False, map_location="cpu")  # aunque se entrenara en GPU
     cfg = ck["config"]
     modelo = crear_modelo(cfg["arquitectura"], ck["metadata"], oculto=cfg["oculto"], capas=cfg["capas"],
                           dropout=cfg["dropout"], clases=NUM_CLASES)  # fmt: skip
@@ -147,7 +149,7 @@ def main() -> None:
 
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--modelo", type=Path, default=RAIZ / "modelos" / "mejor.pt")
-    p.add_argument("--split", default="test", choices=["test", "dev", "train"])
+    p.add_argument("--split", default="test", choices=["test", "test_ampliado", "dev", "dev_ampliado", "dev_todo", "train"])
     args = p.parse_args()
     torch.set_num_threads(4)  # ver --hilos en entrenar.py
     modelo, ck = cargar_modelo(args.modelo)

@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from acordes_gnn.datos import DATOS, cargar_splits, ruta_de
+from acordes_gnn.datos import DATOS, PREFIJO_POP909, cargar_splits, ruta_de
 from acordes_gnn.etiquetas import SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
 
 CACHE = DATOS / "cache"
@@ -45,10 +45,22 @@ VERSION_CACHE = 3  # súbelo si cambias grafo.py o etiquetas.py: invalida la cac
 
 
 def nombres_de(split: str, splits: dict | None = None) -> list[str]:
-    """Partituras de un split. ``train`` incluye las originales de Analisis-AI que no repiten canción."""
+    """Partituras de un split.
+
+    ``train`` = arreglos de PDMX + las originales de Analisis-AI + las nuevas del PDMX completo.
+    ``train_antiguo`` = lo mismo sin las nuevas (el train de los experimentos 1–8).
+    """
     s = splits or cargar_splits()
-    if split == "train":
+    if split == "train_antiguo":
         return s["train"] + s["originales"]
+    if split == "train":
+        return s["train"] + s["originales"] + s.get("train_nuevas", [])
+    if split == "train_pop909":  # train + las canciones de POP909-CL
+        return s["train"] + s["originales"] + s.get("train_nuevas", []) + s.get("pop909", [])
+    if split == "dev_todo":  # dev de Analisis-AI (20) + dev ampliado (50): decide con menos ruido
+        return s["dev"] + s.get("dev_ampliado", [])
+    if split == "lead_sheets_todas":
+        return s["lead_sheets"] + s.get("lead_sheets_nuevas", [])
     return s[split]
 
 
@@ -57,19 +69,27 @@ def _ruta_cache(nombre: str) -> Path:
 
 
 def procesar(nombre: str) -> dict:
-    """MusicXML → {grafo, acordes, estadísticas}. Corre en un proceso aparte."""
+    """MusicXML (o MIDI de POP909-CL) → {grafo, acordes, estadísticas}. Corre en un proceso aparte."""
     from acordes_gnn.grafo import construir_grafo, leer_notas
 
     ruta = ruta_de(nombre)
-    notas = leer_notas(ruta)
-    acordes, silencios, n_compases = leer_referencia(ruta)
-    if not acordes:
-        raise ValueError("sin cifrado")
-    if n_compases != len(notas.inicios_compas):
-        raise ValueError(f"music21 ve {n_compases} compases y partitura {len(notas.inicios_compas)}")
-    ubicar(acordes, notas.inicios_compas)
-    inicios = notas.inicios_compas
-    sil_t = [float(inicios[min(i, len(inicios) - 1)]) + o for i, o in silencios]
+    if nombre.startswith(PREFIJO_POP909):
+        from acordes_gnn.pop909 import leer_pop909
+
+        notas, acordes, sil_t = leer_pop909(ruta)  # los "sin acorde" ya vienen en tiempo
+        if not acordes:
+            raise ValueError("sin acordes")
+        ubicar(acordes, notas.inicios_compas)
+    else:
+        notas = leer_notas(ruta)
+        acordes, silencios, n_compases = leer_referencia(ruta)
+        if not acordes:
+            raise ValueError("sin cifrado")
+        if n_compases != len(notas.inicios_compas):
+            raise ValueError(f"music21 ve {n_compases} compases y partitura {len(notas.inicios_compas)}")
+        ubicar(acordes, notas.inicios_compas)
+        inicios = notas.inicios_compas
+        sil_t = [float(inicios[min(i, len(inicios) - 1)]) + o for i, o in silencios]
     y = etiquetar_notas(notas.array["onset_quarter"], acordes, sil_t)
     grafo = construir_grafo(notas, y)
     return {

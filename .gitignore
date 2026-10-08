@@ -13,6 +13,8 @@ data/pdmx/*
 !data/pdmx/muestra30.json
 !data/pdmx/desarrollo20.json
 !data/pdmx/heuristico_dos_manos.json
+!data/pdmx/nuevas_auditoria.json
+!data/pdmx/lead_nuevas.json
 !data/pdmx/con_cifrado/
 data/pdmx/con_cifrado/*
 !data/pdmx/con_cifrado/_indice.json
