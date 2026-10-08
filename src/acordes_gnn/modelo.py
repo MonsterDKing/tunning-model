@@ -126,8 +126,16 @@ class _Metrical(nn.Module):
 ARQUITECTURAS = {"propio": ModeloAcordes, "temporal": ModeloTemporal, "metrical": _Metrical}
 
 
-def crear_modelo(arquitectura: str, metadata, **kw) -> nn.Module:
-    return ARQUITECTURAS[arquitectura](metadata, **kw)
+def crear_modelo(arquitectura: str, metadata, voz: bool = False, **kw) -> nn.Module:
+    """``voz=True`` añade una segunda salida: por cada nota, ¿melodía (1) o acompañamiento (0)?
+
+    Usa el MISMO vector de cada nota que la salida de acordes (``codificar``): las capas de la GNN
+    se comparten y aprenden de las dos tareas a la vez (aprendizaje multitarea).
+    """
+    modelo = ARQUITECTURAS[arquitectura](metadata, **kw)
+    if voz:
+        modelo.salida_voz = nn.Linear(kw.get("oculto", 64), 2)
+    return modelo
 
 
 def contar_parametros(modelo: nn.Module) -> int:

@@ -46,9 +46,9 @@ import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
 
-from acordes_gnn.datos import RAIZ
+from acordes_gnn.datos import RAIZ, cargar_splits
 from acordes_gnn.dataset import CorpusAcordes, nombres_de
-from acordes_gnn.etiquetas import NUM_CLASES, SIN_ETIQUETA
+from acordes_gnn.etiquetas import CALIDADES, NUM_CLASES, SIN_ETIQUETA
 from acordes_gnn.evaluar import evaluar_piezas
 from acordes_gnn.modelo import ARQUITECTURAS, contar_parametros, crear_modelo
 
@@ -76,6 +76,10 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--peso-dos-manos", type=int, default=1,
                    help="con --datos todo: cuántas veces aparece cada partitura a dos manos por época")
     p.add_argument("--partir-de", type=Path, help="empezar con los pesos de este modelo (fine-tuning)")
+    p.add_argument("--peso-calidad", type=float, default=0.0,
+                   help="alfa de pesos_por_calidad: >0 da más peso a los acordes raros (dim, aum, sus)")
+    p.add_argument("--peso-voz", type=float, default=0.0,
+                   help=">0 añade la tarea melodía/acompañamiento (POP909) con este peso en la pérdida")
     p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
     p.add_argument("--dispositivo", default="auto", choices=["auto", "cpu", "cuda"],
                    help="dónde calcular: auto = la GPU NVIDIA (CUDA) si hay, si no la CPU")
@@ -104,6 +108,24 @@ def pesos_por_acorde(y: torch.Tensor, pieza: torch.Tensor) -> torch.Tensor:
     tramo = cambio.cumsum(0) - 1  # 0, 0, 0, 1, 1, 2…: a qué tramo pertenece cada nota
     notas_del_tramo = torch.bincount(tramo)[tramo].float()
     return torch.where(y == SIN_ETIQUETA, 0.0, 1.0 / notas_del_tramo)
+
+
+def pesos_por_calidad(piezas: list[dict], alfa: float) -> torch.Tensor:
+    """Peso extra para cada calidad (mayor, menor, dim, aum, sus) según lo rara que sea en train.
+
+    Por qué: el 66 % de los acordes escritos son mayores y solo el 2 % disminuidos. Con la pérdida
+    normal al modelo le compensa no decir nunca "dim" (34 % de acierto en dim, 7 % en sus). El peso
+    de una calidad es ``(acordes de la calidad más frecuente / acordes de esta calidad) ** alfa``:
+    ``alfa = 0`` → todas igual (lo de siempre); ``alfa = 0.5`` → un dim pesa ~5 veces un mayor.
+    Se cuentan ACORDES escritos (tramos de ``pesos_por_acorde``), no notas.
+    """
+    cuenta = torch.zeros(len(CALIDADES))
+    for p in piezas:
+        y = p["grafo"]["note"].y
+        w = pesos_por_acorde(y, torch.zeros_like(y))
+        con = y != SIN_ETIQUETA
+        cuenta.index_add_(0, y[con] % len(CALIDADES), w[con])
+    return (cuenta.max() / cuenta.clamp(min=1)) ** alfa
 
 
 def fijar_semilla(s: int) -> None:
@@ -151,14 +173,23 @@ def main(argv=None) -> None:
     cargador = DataLoader(train, batch_size=args.lote, shuffle=True)
 
     metadata = train.piezas[0]["grafo"].metadata()
-    modelo = crear_modelo(args.arquitectura, metadata, oculto=args.oculto, capas=args.capas, dropout=args.dropout,
-                          clases=NUM_CLASES)  # fmt: skip
+    modelo = crear_modelo(args.arquitectura, metadata, voz=args.peso_voz > 0, oculto=args.oculto, capas=args.capas,
+                          dropout=args.dropout, clases=NUM_CLASES)  # fmt: skip
+    if args.peso_voz > 0:  # la melodía del examen de voz no se ve nunca al entrenar
+        examen_voz = set(cargar_splits()["pop909_voz_test"])
+        for p in train.piezas:
+            if p["nombre"] in examen_voz:
+                p["grafo"]["note"].voz = torch.full_like(p["grafo"]["note"].voz, SIN_ETIQUETA)
     if args.partir_de:
         previo = torch.load(args.partir_de, weights_only=False, map_location="cpu")
         if previo["config"]["arquitectura"] != args.arquitectura:
             raise SystemExit(f"{args.partir_de} es {previo['config']['arquitectura']}, no {args.arquitectura}")
         modelo.load_state_dict(previo["estado"])  # mismos tamaños: falla si cambian --oculto/--capas
         print(f"partiendo de {args.partir_de.name} (época {previo['epoca']}, dev raíz+cal {previo['dev']['dev_calidad']:.1%})")
+    peso_calidad = None
+    if args.peso_calidad > 0:
+        peso_calidad = pesos_por_calidad(train.piezas, args.peso_calidad).to(dispositivo)
+        print("peso por calidad:", " · ".join(f"{q} {w:.1f}" for q, w in zip(CALIDADES, peso_calidad.tolist())))
     # La GPU necesita tener a mano el modelo y los datos: se mueven una vez (modelo, dev) o por lote
     modelo.to(dispositivo)
     for p in dev.piezas:
@@ -177,16 +208,25 @@ def main(argv=None) -> None:
         for lote in cargador:
             lote = lote.to(dispositivo)
             # onset y pieza (de qué partitura del lote es cada nota) los usa el modelo temporal
-            logits = modelo(lote.x_dict, lote.edge_index_dict, onset=lote["note"].onset_q, pieza=lote["note"].batch)
+            if args.peso_voz > 0:  # multitarea: el mismo vector de cada nota alimenta las dos salidas
+                h = modelo.codificar(lote.x_dict, lote.edge_index_dict)
+                logits, logits_voz = modelo.salida(h), modelo.salida_voz(h)
+            else:
+                logits = modelo(lote.x_dict, lote.edge_index_dict, onset=lote["note"].onset_q, pieza=lote["note"].batch)
             y = lote["note"].y
             if args.peso_por_acorde:
                 # pérdida de cada nota (0 en las sin etiqueta) × su peso; dividir entre la suma de
                 # pesos (= nº de acordes) da la media POR ACORDE en vez de por nota
                 por_nota = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA, reduction="none")
                 w = pesos_por_acorde(y, lote["note"].batch)
+                if peso_calidad is not None:
+                    w = w * peso_calidad[y.clamp(min=0) % len(CALIDADES)]  # las notas sin etiqueta ya pesan 0
                 perdida = (por_nota * w).sum() / w.sum()
             else:
                 perdida = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA)
+            voz = lote["note"].voz
+            if args.peso_voz > 0 and (voz != SIN_ETIQUETA).any():
+                perdida = perdida + args.peso_voz * torch.nn.functional.cross_entropy(logits_voz, voz, ignore_index=SIN_ETIQUETA)
             opt.zero_grad()
             perdida.backward()
             torch.nn.utils.clip_grad_norm_(modelo.parameters(), 1.0)

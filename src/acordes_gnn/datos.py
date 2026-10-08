@@ -226,6 +226,8 @@ def construir_splits() -> dict:
         lead_sheets = [a for a in lead_sheets if not como_examen(_normalizar(indice[a]["song_name"]))]
 
     pop909 = sorted(PREFIJO_POP909 + r.name for r in POP909.glob("*.mid") if r.name not in POP909_EXCLUIDAS)
+    # examen de la tarea de melodía: su melodía nunca se usa al entrenar (sus acordes sí: no la revelan)
+    pop909_voz_test = sorted(random.Random(SEMILLA_EXAMENES).sample(pop909, 60))
 
     # Comprobaciones: nada de test/dev puede filtrarse a otro split
     conjuntos = {"test": set(test), "dev": set(dev), "train": set(train), "originales": set(originales),
@@ -265,6 +267,7 @@ def construir_splits() -> dict:
         "lead_sheets": lead_sheets,
         "lead_sheets_nuevas": lead_sheets_nuevas,
         "pop909": pop909,
+        "pop909_voz_test": pop909_voz_test,
     }
 
 

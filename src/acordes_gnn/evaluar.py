@@ -130,8 +130,8 @@ def cargar_modelo(ruta: Path):
 
     ck = torch.load(ruta, weights_only=False, map_location="cpu")  # aunque se entrenara en GPU
     cfg = ck["config"]
-    modelo = crear_modelo(cfg["arquitectura"], ck["metadata"], oculto=cfg["oculto"], capas=cfg["capas"],
-                          dropout=cfg["dropout"], clases=NUM_CLASES)  # fmt: skip
+    modelo = crear_modelo(cfg["arquitectura"], ck["metadata"], voz=cfg.get("peso_voz", 0) > 0, oculto=cfg["oculto"],
+                          capas=cfg["capas"], dropout=cfg["dropout"], clases=NUM_CLASES)  # fmt: skip
     modelo.load_state_dict(ck["estado"])
     return modelo, ck
 

@@ -19,6 +19,12 @@ escritos + "sin acorde"), así el grafo, las etiquetas y la métrica no cambian:
   mayor; m7 → menor; ø7, °7 → dim…). Un bloque que no encaja en ninguna plantilla, o un hueco entre
   bloques, cuenta como "sin acorde" (sus notas quedan sin etiqueta).
 
+**Melodía (segunda tarea, opcional).** El POP909 original (``data/pop909_original``) trae las mismas
+notas separadas en tres pistas: MELODY, BRIDGE y PIANO. POP909-CL las juntó en una y desplazó cada
+canción un poco (alineó el primer pulso). ``etiquetas_voz`` busca ese desplazamiento (el más votado
+entre notas de la misma altura) y marca cada nota: 1 = melodía, 0 = acompañamiento. Si menos del
+95 % de las notas encuentra pareja, la canción se queda sin etiqueta de voz (−100).
+
 Las canciones 518 y 620 conservan etiquetas del algoritmo (no humanas, lo dice el README): fuera.
 Ninguna de las 909 repite canción de test/dev: se comprobó el 2026-10-07 contra el índice de POP909
 (``POP909/index.xlsx`` del repositorio original: título y artista, casi todo pop chino).
@@ -31,7 +37,8 @@ from pathlib import Path
 
 import numpy as np
 
-from acordes_gnn.etiquetas import CALIDAD_M21, RAICES, AcordeEscrito, inicios_de_compas
+from acordes_gnn.datos import DATOS
+from acordes_gnn.etiquetas import CALIDAD_M21, RAICES, SIN_ETIQUETA, AcordeEscrito, inicios_de_compas
 from acordes_gnn.grafo import Notas
 
 
@@ -63,6 +70,53 @@ def nombrar(alturas: frozenset[int]) -> tuple[int, str, str] | None:
             if encaje:
                 return raiz, *encaje
     return None
+
+
+ORIGINAL = DATOS / "pop909_original" / "POP909"  # el POP909 de music-x-lab, con la melodía aparte
+
+
+def _ataques(pista) -> list[tuple[int, int]]:
+    t, salida = 0, []
+    for msg in pista:
+        t += msg.time
+        if msg.type == "note_on" and msg.velocity > 0:
+            salida.append((t, msg.note))
+    return salida
+
+
+def etiquetas_voz(ruta: str | Path, notas: Notas, tolerancia: int = 12, minimo: float = 0.95) -> np.ndarray:
+    """1 = melodía, 0 = acompañamiento, −100 = no se sabe; una por nota de ``notas`` (mismo orden)."""
+    import mido
+    from collections import Counter
+
+    clave = Path(ruta).stem.strip()  # hay un "043 .mid" con espacio
+    original = ORIGINAL / clave / f"{clave}.mid"
+    if not original.exists():
+        return np.full(len(notas.array), SIN_ETIQUETA, dtype=np.int64)
+    cl, orig = mido.MidiFile(str(ruta)), mido.MidiFile(str(original))
+    ppq = cl.ticks_per_beat
+    pistas = {t.name: _ataques(t) for t in orig.tracks}
+    todas = [(t, n, nombre == "MELODY") for nombre in ("MELODY", "BRIDGE", "PIANO") for t, n in pistas.get(nombre, [])]
+    # desplazamiento de esta canción: la diferencia de ataques más repetida entre notas de igual altura
+    votos = Counter()
+    for t1, n1 in _ataques(cl.tracks[1])[:200]:
+        for t0, n0, _ in todas:
+            if n0 == n1 and abs(t1 - t0) < ppq * 16:
+                votos[round((t1 - t0) / 20) * 20] += 1
+    if not votos:
+        return np.full(len(notas.array), SIN_ETIQUETA, dtype=np.int64)
+    desplazamiento = votos.most_common(1)[0][0]
+    por_altura: dict[int, list[tuple[int, bool]]] = {}
+    for t0, n0, es_melodia in todas:
+        por_altura.setdefault(n0, []).append((t0 + desplazamiento, es_melodia))
+    voz = np.full(len(notas.array), SIN_ETIQUETA, dtype=np.int64)
+    for k, (q, n) in enumerate(zip(notas.array["onset_quarter"], notas.array["pitch"])):
+        candidatas = [m for t0, m in por_altura.get(int(n), []) if abs(t0 - q * ppq) <= tolerancia]
+        if candidatas:
+            voz[k] = int(any(candidatas))  # nota doblada en melodía y acompañamiento: cuenta como melodía
+    if (voz != SIN_ETIQUETA).mean() < minimo:
+        voz[:] = SIN_ETIQUETA  # alineación dudosa: mejor sin etiqueta
+    return voz
 
 
 def leer_pop909(ruta: str | Path) -> tuple[Notas, list[AcordeEscrito], list[float]]:

@@ -74,12 +74,13 @@ def procesar(nombre: str) -> dict:
 
     ruta = ruta_de(nombre)
     if nombre.startswith(PREFIJO_POP909):
-        from acordes_gnn.pop909 import leer_pop909
+        from acordes_gnn.pop909 import etiquetas_voz, leer_pop909
 
         notas, acordes, sil_t = leer_pop909(ruta)  # los "sin acorde" ya vienen en tiempo
         if not acordes:
             raise ValueError("sin acordes")
         ubicar(acordes, notas.inicios_compas)
+        voz = etiquetas_voz(ruta, notas)
     else:
         notas = leer_notas(ruta)
         acordes, silencios, n_compases = leer_referencia(ruta)
@@ -90,8 +91,11 @@ def procesar(nombre: str) -> dict:
         ubicar(acordes, notas.inicios_compas)
         inicios = notas.inicios_compas
         sil_t = [float(inicios[min(i, len(inicios) - 1)]) + o for i, o in silencios]
+        voz = None
     y = etiquetar_notas(notas.array["onset_quarter"], acordes, sil_t)
     grafo = construir_grafo(notas, y)
+    if voz is not None:
+        grafo["note"].voz = torch.from_numpy(voz)  # 1 = melodía, 0 = acompañamiento (solo POP909)
     return {
         "version": VERSION_CACHE,
         "nombre": nombre,
@@ -137,6 +141,9 @@ def cargar(nombre: str) -> dict:
     d = torch.load(_ruta_cache(nombre), weights_only=False)
     if d.get("version") != VERSION_CACHE:
         raise RuntimeError(f"caché vieja para {nombre}: corre `uv run preparar-datos --rehacer`")
+    nota = d["grafo"]["note"]
+    if "voz" not in nota.keys():  # solo POP909 sabe qué es melodía: el resto, sin etiqueta de voz
+        nota.voz = torch.full((nota.num_nodes,), SIN_ETIQUETA, dtype=torch.long)
     return d
 
 
