@@ -226,6 +226,8 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 17 | Multitarea melodía/acompañamiento (`--peso-voz 1`, etiquetas del POP909 original alineadas con POP909-CL; `scripts/evaluar_voz.py`) | dev 70: 86.4 % (acordes) | Melodía: F1 63.7 % frente a 52.1 % del *skyline* (acierto 85.8 % frente a 65.0 %). A los acordes no les ayuda |
 | 19 | Comparación con BACHI (ICASSP 2026, estado del arte en acordes simbólicos; 31 M parámetros), en las mismas partituras sin cifrado | — | Test original / ampliado: BACHI-pop 75.0 / 79.6 %, BACHI-clásico 80.9 / 78.5 %, nuestra GNN 84.7 / 85.8 % |
 | 20 | + ~475 obras de piano clásico con análisis de musicólogos (corpus de BACHI: When in Rome + DCML; `clasico.py`, `--con-clasico`) | dev 70: 86.3 % (sin: 86.4 %) | Empate: test 85.2 % / 85.8 % (84.7 / 85.8). Datos de otro estilo ayudan poco con pop. No por defecto |
+| 21 | Rasgo `es_bajo`: la nota más grave de lo que suena cuando empieza (31 rasgos, caché v4) | dev 70: 86.7 % (sin: 86.4 %) | Empate: test 84.2 % / 86.0 %, los 130 juntos 85.5 %. Las confusiones Am↔F no bajan (243 → 237): el modelo ya deducía el bajo de la altura y la mano. Se queda (`modelos/mejor.pt`) porque la caché v4 lo lleva |
+| 22 | Lote 32 + 6 trabajadores en WSL (57 s por época frente a ~265 s) | dev 70: 85.9 % (lote 8: 86.7 %); con `--lr 6e-3`: 86.0 % | 4,6× más rápido, pero menos pasos por época: pierde ~0.8 puntos y doblar el *learning rate* no lo recupera. Se queda lote 8 para los modelos buenos |
 
 ### 5. Evaluar en test
 
@@ -379,6 +381,24 @@ basta con copiar `data/cache/` y entrenar con torch (cu128) + torch_geometric + 
 un *junction* que Windows no deja recorrer). Una época del modelo de 256 tarda ~4,7 s frente a
 ~45 s en la CPU de esta máquina; con la GPU, 128 y 256 tardan casi lo mismo. Los modelos se
 cargan siempre en CPU (`map_location`), así que se evalúan aquí.
+
+**WSL2 en la misma máquina (Ubuntu 24.04, `ssh -p 2222 pedro@192.168.1.114`)**: en Windows la GPU
+no pasaba del ~40 %, porque el cuello de botella es Python lanzando miles de operaciones pequeñas,
+no la GPU. En Linux se puede preparar lotes en paralelo (`--trabajadores`, procesos con `fork`;
+en Windows cada proceso copiaría todo el conjunto). El proyecto está en `~/tunning-model`, con un
+`.venv-gpu` (torch cu128). Se entrena con `.venv-gpu/bin/python -m acordes_gnn.entrenar` y no con
+`uv run`, porque `pyproject.toml` fija el torch de CPU. Una tarea programada de Windows ("WSL
+Ubuntu activo") mantiene Ubuntu encendido; si se apaga (p. ej. al cerrar una terminal de WSL),
+`Start-ScheduledTask -TaskName "WSL Ubuntu activo"` lo vuelve a levantar. WSL tiene un tope de
+64 GB de memoria (`.wslconfig`): 6 entrenamientos a la vez usaban 57 GB, así que se lanzan de 3
+en 3. Los entrenamientos se lanzan con `nohup` para que sobrevivan a la sesión SSH.
+
+| configuración (oculto 256, `todo_pop909`) | partituras/s | s por época |
+|---|---|---|
+| Windows, lote 8 | — | ~265 |
+| WSL, lote 8 | 248 | — |
+| WSL, lote 32 | 514 | — |
+| WSL, lote 32 + 6 trabajadores | 604 | 57 |
 
 **Mac Studio M4 Max (48 GB)**, disponible por SSH: opción futura para modelos más grandes. Torch
 tiene backend MPS en Apple Silicon, pero no todas las operaciones de PyG lo soportan y las
