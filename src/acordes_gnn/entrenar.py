@@ -83,6 +83,9 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--con-clasico", action="store_true",
                    help="añadir a train las obras de piano del corpus clásico de BACHI (análisis de musicólogos)")
     p.add_argument("--fraccion", type=float, default=1.0, help="fracción de las partituras de train (curva de datos)")
+    p.add_argument("--trabajadores", type=int, default=0,
+                   help="procesos que preparan lotes en paralelo (transponer + juntar). Útil en Linux con lotes "
+                        "grandes (--lote 32: ~2,4× más rápido en la RTX 4090); en Windows cada proceso copiaría todo")
     p.add_argument("--dispositivo", default="auto", choices=["auto", "cpu", "cuda"],
                    help="dónde calcular: auto = la GPU NVIDIA (CUDA) si hay, si no la CPU")
     # con grafos pequeños, muchos hilos se estorban: 24 hilos fue ~400× más lento que 4 en esta máquina
@@ -174,7 +177,10 @@ def main(argv=None) -> None:
         print(f"lead sheets sin grafo (se saltan): {len(train.fallidas)}")
     elif train.fallidas or dev.fallidas:
         raise SystemExit(f"Faltan grafos en caché ({len(train.fallidas) + len(dev.fallidas)}): corre `uv run preparar-datos`")
-    cargador = DataLoader(train, batch_size=args.lote, shuffle=True)
+    if args.trabajadores > 0:  # con muchos lotes en vuelo, Linux se queda sin descriptores de archivo
+        torch.multiprocessing.set_sharing_strategy("file_system")
+    cargador = DataLoader(train, batch_size=args.lote, shuffle=True, num_workers=args.trabajadores,
+                          persistent_workers=args.trabajadores > 0)  # fmt: skip
 
     metadata = train.piezas[0]["grafo"].metadata()
     modelo = crear_modelo(args.arquitectura, metadata, voz=args.peso_voz > 0, oculto=args.oculto, capas=args.capas,

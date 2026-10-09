@@ -15,14 +15,24 @@ def test_tonica_por_circulo_de_quintas():
 
 def test_grado_en_re_mayor():
     # con 2♯ (Re mayor): Fa♯4 (66) es la 3ª y La4 (69) la 5ª
-    rasgos = calcular_rasgos(torch.tensor([66, 69]), torch.zeros(2, 5), torch.tensor([2, 2]))
+    rasgos = calcular_rasgos(torch.tensor([66, 69]), torch.zeros(2, 6), torch.tensor([2, 2]))
     nombres = [NOMBRES_RASGOS[GRADO][int(i)] for i in rasgos[:, GRADO].argmax(1)]
     assert nombres == ["grado_3", "grado_5"]
 
 
 def test_transponer_mueve_la_altura_pero_no_el_grado():
-    altura, tonica, fijos = torch.tensor([60, 64, 67, 70]), torch.tensor([0, 0, 0, 0]), torch.zeros(4, 5)
+    altura, tonica, fijos = torch.tensor([60, 64, 67, 70]), torch.tensor([0, 0, 0, 0]), torch.zeros(4, 6)
     antes = calcular_rasgos(altura, fijos, tonica)
     despues = calcular_rasgos(altura + 5, fijos, (tonica + 5) % 12)
     assert torch.equal(antes[:, GRADO], despues[:, GRADO])
     assert not torch.equal(antes[:, :12], despues[:, :12])
+
+
+def test_es_bajo_cuenta_las_notas_que_siguen_sonando():
+    import numpy as np
+    from acordes_gnn.grafo import es_bajo
+
+    na = np.array([(0.0, 4.0, 48), (0.0, 1.0, 64), (1.0, 1.0, 67), (4.0, 1.0, 60)],
+                  dtype=[("onset_quarter", "f4"), ("duration_quarter", "f4"), ("pitch", "i4")])
+    # Do3 (largo) es el bajo; el Sol4 de la negra 1 no lo es porque el Do3 sigue sonando; el Do4 final sí
+    assert es_bajo(na).tolist() == [1, 0, 0, 1]

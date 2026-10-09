@@ -15,6 +15,10 @@ vector de rasgos (features) — ver ``NOMBRES_RASGOS``:
 - tiempo fuerte (1): 1 si cae en el primer tiempo del compás.
 - en el pulso (1): 1 si empieza justo en un pulso (no a contratiempo).
 - mano izquierda (1): 1 si está en el pentagrama de abajo (suele llevar la armonía).
+- es el bajo (1): 1 si es la nota más grave de lo que suena cuando empieza (contando las que siguen
+  sonando desde antes). En los fallos Am↔F, el bajo era la raíz correcta el 61 % de las veces; el
+  modelo solo sabía la altura de cada nota, no "soy la más grave ahora". No es la raíz siempre
+  (D/F#): el modelo aprende cuándo fiarse.
 - grado en la armadura (12): qué grado de la escala mayor de la armadura es la nota (1, ♭2, 2…
   7). En Re mayor (2♯) un Fa♯ es la 3ª. Es el "director" que sabe la tonalidad: la armadura la
   escribió el arreglista. Ojo: no distingue mayor de su relativa menor (Do mayor y La menor no
@@ -61,8 +65,9 @@ NOMBRES_RASGOS = [f"pc_{n}" for n in ("C", "C#", "D", "Eb", "E", "F", "F#", "G",
     "tiempo_fuerte",
     "en_pulso",
     "mano_izquierda",
+    "es_bajo",
 ] + [f"grado_{g}" for g in ("1", "b2", "2", "b3", "3", "4", "#4", "5", "b6", "6", "b7", "7")]
-NUM_RASGOS = len(NOMBRES_RASGOS)  # 30
+NUM_RASGOS = len(NOMBRES_RASGOS)  # 31
 
 EXPLICACION_ARISTAS = {
     "onset": "empieza a la vez que",
@@ -112,7 +117,19 @@ def rasgos_fijos(na: np.ndarray) -> np.ndarray:
     fuerte = na["is_downbeat"].astype(float)
     en_pulso = (np.abs(na["onset_beat"] - np.round(na["onset_beat"])) < 1e-6).astype(float)
     izquierda = (na["staff"] >= 2).astype(float)
-    return np.stack([duracion, posicion, fuerte, en_pulso, izquierda], axis=1).astype(np.float32)
+    return np.stack([duracion, posicion, fuerte, en_pulso, izquierda, es_bajo(na)], axis=1).astype(np.float32)
+
+
+def es_bajo(na: np.ndarray) -> np.ndarray:
+    """1 si la nota es la más grave de todo lo que suena en el instante en que empieza."""
+    inicio, fin, altura = na["onset_quarter"], na["onset_quarter"] + na["duration_quarter"], na["pitch"]
+    bajo = np.zeros(len(na))
+    for t in np.unique(inicio):
+        empiezan = np.abs(inicio - t) < 1e-6  # (las notas de adorno duran 0: cuentan igual)
+        suenan = empiezan | ((inicio <= t + 1e-6) & (fin > t + 1e-6))  # y las que siguen sonando
+        minimo = altura[suenan].min()
+        bajo[empiezan & (altura == minimo)] = 1
+    return bajo
 
 
 def tonica_de_armadura(quintas: np.ndarray) -> np.ndarray:

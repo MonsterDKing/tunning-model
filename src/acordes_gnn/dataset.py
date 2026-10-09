@@ -41,7 +41,7 @@ from acordes_gnn.datos import DATOS, PREFIJO_CLASICO, PREFIJO_POP909, cargar_spl
 from acordes_gnn.etiquetas import SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
 
 CACHE = DATOS / "cache"
-VERSION_CACHE = 3  # súbelo si cambias grafo.py o etiquetas.py: invalida la caché
+VERSION_CACHE = 4  # súbelo si cambias grafo.py o etiquetas.py: invalida la caché
 
 
 def nombres_de(split: str, splits: dict | None = None) -> list[str]:
