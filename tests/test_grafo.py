@@ -36,3 +36,31 @@ def test_es_bajo_cuenta_las_notas_que_siguen_sonando():
                   dtype=[("onset_quarter", "f4"), ("duration_quarter", "f4"), ("pitch", "i4")])
     # Do3 (largo) es el bajo; el Sol4 de la negra 1 no lo es porque el Do3 sigue sonando; el Do4 final sí
     assert es_bajo(na).tolist() == [1, 0, 0, 1]
+
+
+def test_mutar_calidad_mueve_la_nota_y_la_etiqueta_juntas():
+    """Exp. 26: Do-Mi-Sol escrito como Do mayor → Do menor (Mi → Mi♭) o Do aumentado (Sol → Sol♯)."""
+    import torch
+    from torch_geometric.data import HeteroData
+
+    from acordes_gnn.dataset import mutar_calidad
+    from acordes_gnn.etiquetas import clase
+
+    g = HeteroData()
+    g["note"].pitch = torch.tensor([60, 64, 67, 62])  # Do4 Mi4 Sol4 + un Re4 sin etiqueta (no se toca)
+    g["note"].y = torch.tensor([clase(0, "mayor")] * 3 + [-100])
+    g["note"].fijos = torch.zeros(4, 6)
+    g["note"].tonica = torch.zeros(4, dtype=torch.long)
+    esperado = {clase(0, "menor"): [60, 63, 67], clase(0, "aum"): [60, 64, 68], clase(0, "sus"): [60, 65, 67]}
+    vistos = set()
+    for conjunto in ("todas", "raras"):
+        for semilla in range(6):
+            h = g.clone()
+            mutar_calidad(h, fraccion=1.0, semilla=semilla, conjunto=conjunto)
+            assert h["note"].y[3] == -100 and h["note"].pitch[3] == 62
+            nueva = int(h["note"].y[0])
+            assert h["note"].y[:3].tolist() == [nueva] * 3  # todo el acorde cambia de etiqueta a la vez
+            assert h["note"].pitch[:3].tolist() == esperado[nueva]
+            assert h["note"].x[1, :12].argmax() == h["note"].pitch[1] % 12  # los rasgos se recalculan
+            vistos.add(nueva)
+    assert vistos == set(esperado)  # entre los dos conjuntos salen las tres calidades

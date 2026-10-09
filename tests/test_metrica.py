@@ -57,3 +57,16 @@ def test_prediccion_por_promedio_de_probabilidades():
     prob[2, G], prob[2, C] = 0.99, 0.01  # segura
     onset, dur = torch.zeros(3), torch.ones(3)
     assert predecir_en_puntos(prob, onset, dur, [0.0]) == [G]  # media: G 0.60, C 0.40
+
+
+def test_ventana_hacia_delante_vota_con_menos_peso():
+    """Exp. 24: las notas que atacan dentro de las 2 negras siguientes votan con peso 0.3; fuera, no."""
+    C, G = 0, 7 * 5
+    onset = torch.tensor([0.0, 1.0, 3.0])
+    dur = torch.ones(3)
+    prob = torch.zeros(3, NUM_CLASES)
+    prob[0, C], prob[1, G], prob[2, G] = 0.6, 1.0, 1.0  # en t=0 solo vota la primera (C) salvo por la ventana
+    prob[0, G] = 0.4
+    assert predecir_en_puntos(prob, onset, dur, [0.0], ventana=0) == [C]  # sin ventana: C 0.6 > G 0.4
+    assert predecir_en_puntos(prob, onset, dur, [0.0]) == [G]  # con la nota de t=1 (peso 0.3): G 0.7 > C 0.6
+    assert predecir_en_puntos(prob, onset, dur, [0.0], ventana=0.5) == [C]  # t=1 queda fuera de media negra

@@ -17,6 +17,15 @@ Esto es lo que el heurístico hacía a mano con PESO_ATAQUE, PESO_MELODIA, PESO_
 cuánto cuenta cada nota según su contexto. Aquí esos "pesos" son las matrices de cada tipo de
 arista y se aprenden con descenso de gradiente a partir del cifrado humano.
 
+Dos cabezas de salida (``--cabeza``):
+- ``conjunta`` (la original): una capa lineal a 60 clases. Cada acorde es una clase independiente:
+  "Fdim" no comparte nada con "Cdim" ni con "F".
+- ``factorizada`` (Experimento 25): dos clasificadores pequeños, raíz (12) y calidad (5), y
+  log p(acorde) = log p(raíz) + log p(calidad). La calidad se aprende con los ejemplos de TODAS las
+  raíces: con 60 clases, "dim" tenía 12 cajones con ~0.2 % de los acordes cada uno; aquí uno solo con
+  el 2 %. Es la apuesta para dim (22 % de acierto) y sus (3 %) sin repesar la pérdida (Exp. 16 hundió
+  los mayores). Devuelve 60 logits como la conjunta, así que pérdida y evaluación no cambian.
+
 Tres arquitecturas:
 - ``propio`` (por defecto): ``ModeloAcordes``, escrita aquí para que se vea cada pieza.
 - ``temporal``: ``ModeloTemporal`` = ``propio`` + una GRU que recorre los ataques en orden (paso 6).
@@ -29,12 +38,42 @@ import torch
 from torch import nn
 from torch_geometric.nn import HeteroConv, SAGEConv
 
-from acordes_gnn.etiquetas import NUM_CLASES
+from acordes_gnn.etiquetas import CALIDADES, NUM_CLASES
 from acordes_gnn.grafo import NUM_RASGOS
 
 
+class CabezaFactorizada(nn.Module):
+    """60 logits a partir de dos clasificadores: raíz (12) y calidad (5).
+
+    ``log_softmax`` de cada parte y suma → log p(raíz, calidad) = log p(raíz) + log p(calidad), con
+    la clase ``raíz * 5 + calidad`` como en etiquetas.py. Como esas 60 cantidades ya son logaritmos
+    de probabilidades que suman 1, ``cross_entropy`` sobre ellas es exactamente la suma de las dos
+    entropías cruzadas (raíz y calidad), y ``softmax`` las devuelve tal cual.
+    """
+
+    def __init__(self, entrada: int, clases: int = NUM_CLASES):
+        super().__init__()
+        self.raiz = nn.Linear(entrada, clases // len(CALIDADES))
+        self.calidad = nn.Linear(entrada, len(CALIDADES))
+
+    def forward(self, h: torch.Tensor) -> torch.Tensor:
+        log_r = self.raiz(h).log_softmax(-1)
+        log_q = self.calidad(h).log_softmax(-1)
+        return (log_r[:, :, None] + log_q[:, None, :]).flatten(1)
+
+
+CABEZAS = ("conjunta", "factorizada")
+
+
+def crear_cabeza(cabeza: str, entrada: int, clases: int = NUM_CLASES) -> nn.Module:
+    if cabeza == "factorizada":
+        return CabezaFactorizada(entrada, clases)
+    return nn.Linear(entrada, clases)
+
+
 class ModeloAcordes(nn.Module):
-    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES):
+    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES,
+                 cabeza: str = "conjunta"):  # fmt: skip
         super().__init__()
         tipos_nodo, tipos_arista = metadata
         # 1. proyección de entrada, una por tipo de nodo (una nota y un compás no "significan" igual)
@@ -46,7 +85,7 @@ class ModeloAcordes(nn.Module):
         self.normas = nn.ModuleList(nn.ModuleDict({t: nn.LayerNorm(oculto) for t in tipos_nodo}) for _ in range(capas))
         self.dropout = nn.Dropout(dropout)
         # 4. cabeza de clasificación (solo para las notas)
-        self.salida = nn.Linear(oculto, clases)
+        self.salida = crear_cabeza(cabeza, oculto, clases)
 
     def codificar(self, x_dict: dict, edge_index_dict: dict) -> torch.Tensor:
         """Pasos 1–3: un vector de ``oculto`` números por nota que resume su vecindario."""
@@ -89,11 +128,12 @@ class ModeloTemporal(ModeloAcordes):
     3. cada nota recibe el contexto de su ataque, se pega a su propio vector y se clasifica.
     """
 
-    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES):
-        super().__init__(metadata, oculto, capas, dropout, clases)
+    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES,
+                 cabeza: str = "conjunta"):  # fmt: skip
+        super().__init__(metadata, oculto, capas, dropout, clases, cabeza)
         self.gru = nn.GRU(oculto, oculto, batch_first=True, bidirectional=True)
         # la nota (oculto) + su contexto hacia atrás y hacia delante (2 × oculto)
-        self.salida = nn.Linear(3 * oculto, clases)
+        self.salida = crear_cabeza(cabeza, 3 * oculto, clases)
 
     def forward(self, x_dict: dict, edge_index_dict: dict, onset=None, pieza=None) -> torch.Tensor:
         h = self.codificar(x_dict, edge_index_dict)
@@ -113,8 +153,9 @@ class ModeloTemporal(ModeloAcordes):
 class _Metrical(nn.Module):
     """Adaptador para usar MetricalGNN de GraphMuse con la misma interfaz."""
 
-    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES):
-        super().__init__()
+    def __init__(self, metadata, oculto: int = 64, capas: int = 3, dropout: float = 0.3, clases: int = NUM_CLASES,
+                 cabeza: str = "conjunta"):  # fmt: skip
+        super().__init__()  # (cabeza se ignora: MetricalGNN trae su propia salida)
         from graphmuse.nn import MetricalGNN
 
         self.red = MetricalGNN(NUM_RASGOS, oculto, clases, capas, metadata, dropout=dropout)

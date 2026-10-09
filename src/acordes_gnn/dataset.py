@@ -17,6 +17,17 @@ En cada época cada partitura se transpone a una tonalidad al azar (k ∈ −5�
 épocas el modelo ve todas, sin multiplicar por 12 el coste de cada época. Dev y test NUNCA se
 transponen: se miden tal cual las escribió el arreglista.
 
+Aumento por mutación de calidad (Experimento 26, solo en train)
+----------------------------------------------------------------
+Los acordes raros casi no existen en el corpus (dim 2 %, aum 0.1 %, sus 1 %) y el modelo apenas los
+acierta (22 % y 3 %). En vez de inventar partituras, se MUTAN las reales: en un acorde escrito como
+Do mayor, bajar un semitono las notas que son su tercera (Mi → Mi♭) lo convierte en Do menor; subir
+la quinta (Sol → Sol♯) lo hace aumentado; en un menor, bajar la quinta lo hace disminuido y subir la
+tercera lo hace mayor. La textura, el ritmo, la melodía y las notas de paso siguen siendo las del
+arreglista; solo cambia la calidad, igual que la transposición solo cambia la tonalidad. Cada acorde
+escrito (tramo de notas con la misma etiqueta) se muta con probabilidad ``--mutar-calidad`` y la
+etiqueta de sus notas cambia con él. Las notas sin etiqueta no se tocan. Dev y test, nunca. ``--mutaciones`` elige el conjunto (``MUTACIONES``).
+
 Uso::
 
     uv run preparar-datos            # train + originales + dev + test → data/cache/
@@ -38,7 +49,7 @@ import numpy as np
 import torch
 
 from acordes_gnn.datos import DATOS, PREFIJO_CLASICO, PREFIJO_POP909, cargar_splits, ruta_de
-from acordes_gnn.etiquetas import SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
+from acordes_gnn.etiquetas import CALIDADES, SIN_ETIQUETA, etiquetar_notas, leer_referencia, ubicar
 
 CACHE = DATOS / "cache"
 VERSION_CACHE = 4  # súbelo si cambias grafo.py o etiquetas.py: invalida la caché
@@ -174,10 +185,63 @@ def transponer(grafo, k: int):
     return g
 
 
-class CorpusAcordes(torch.utils.data.Dataset):
-    """Lista de grafos de un split. Con ``aumentar=True`` cada acceso transpone al azar."""
+# calidad original → [(calidad nueva, intervalo (semitonos desde la raíz) de la nota que se mueve, cuánto)]
+MUTACIONES = {
+    # primera versión: también intercambia mayor ↔ menor. Con 0.15 dejó dev igual (dim 17 → 30 %, pero
+    # menores 88.2 → 86.9 %): mayores y menores ya tienen datos de sobra y mutarlos solo mete ruido
+    "todas": {
+        "mayor": [("menor", 4, -1), ("aum", 7, +1)],  # Do: Mi → Mi♭ = Dom · Sol → Sol♯ = Do aum
+        "menor": [("mayor", 3, +1), ("dim", 7, -1)],  # Dom: Mi♭ → Mi = Do · Sol → Sol♭ = Do dim
+    },
+    # solo hacia las calidades raras (dim, aum, sus), que es donde faltan ejemplos
+    "raras": {
+        "mayor": [("aum", 7, +1), ("sus", 4, +1)],  # Do: Sol → Sol♯ = Do aum · Mi → Fa = Dosus4
+        "menor": [("dim", 7, -1), ("sus", 3, -1)],  # Dom: Sol → Sol♭ = Do dim · Mi♭ → Re = Dosus2
+    },
+}
 
-    def __init__(self, nombres: list[str], aumentar: bool = False, semilla: int = 0):
+
+def mutar_calidad(g, fraccion: float, semilla: int, conjunto: str = "raras") -> None:
+    """Muta, EN SITIO, una fracción de los acordes escritos del grafo (ver "Aumento por mutación").
+
+    Un acorde escrito = tramo de notas seguidas con la misma etiqueta (como en ``pesos_por_acorde``).
+    Para cada tramo elegido se sortea una de las dos mutaciones de su calidad; las notas del tramo
+    cuya clase de altura es el intervalo que se mueve cambian de altura, y TODAS las del tramo cambian
+    de etiqueta. Solo se mutan mayores y menores (dim, aum y sus se dejan como están).
+    """
+    from acordes_gnn.grafo import actualizar_rasgos
+
+    y, pitch = g["note"].y, g["note"].pitch
+    cambio = torch.ones_like(y, dtype=torch.bool)
+    cambio[1:] = y[1:] != y[:-1]
+    tramo = cambio.cumsum(0) - 1
+    n_tramos = int(tramo[-1]) + 1
+    gen = torch.Generator().manual_seed(semilla)
+    elegido = torch.rand(n_tramos, generator=gen) < fraccion
+    opcion = torch.randint(0, 2, (n_tramos,), generator=gen)
+    y_tramo = torch.full((n_tramos,), SIN_ETIQUETA, dtype=y.dtype).scatter_(0, tramo, y)
+    raiz, nuevo_y, nuevo_pitch = y // len(CALIDADES), y.clone(), pitch.clone()
+    for calidad, opciones in MUTACIONES[conjunto].items():
+        for k, (nueva, intervalo, paso) in enumerate(opciones):
+            tramos_k = elegido & (opcion == k) & (y_tramo == raiz_de(y_tramo) * len(CALIDADES) + CALIDADES.index(calidad))
+            notas = tramos_k[tramo] & (y >= 0)
+            mover = notas & ((pitch - raiz) % 12 == intervalo)
+            nuevo_pitch[mover] += paso
+            nuevo_y[notas] = raiz[notas] * len(CALIDADES) + CALIDADES.index(nueva)
+    g["note"].pitch, g["note"].y = nuevo_pitch, nuevo_y
+    actualizar_rasgos(g)
+
+
+def raiz_de(y: torch.Tensor) -> torch.Tensor:
+    return torch.div(y, len(CALIDADES), rounding_mode="floor")
+
+
+class CorpusAcordes(torch.utils.data.Dataset):
+    """Lista de grafos de un split. Con ``aumentar=True`` cada acceso transpone al azar (y, con
+    ``mutar > 0``, muta esa fracción de los acordes escritos)."""
+
+    def __init__(self, nombres: list[str], aumentar: bool = False, semilla: int = 0, mutar: float = 0.0,
+                 mutaciones: str = "raras"):  # fmt: skip
         self.piezas, self.fallidas = [], []
         for n in nombres:
             try:
@@ -185,6 +249,7 @@ class CorpusAcordes(torch.utils.data.Dataset):
             except FileNotFoundError:
                 self.fallidas.append(n)
         self.aumentar = aumentar
+        self.mutar, self.mutaciones = mutar, mutaciones
         self.rng = random.Random(semilla)
 
     def __len__(self) -> int:
@@ -192,7 +257,12 @@ class CorpusAcordes(torch.utils.data.Dataset):
 
     def __getitem__(self, i: int):
         g = self.piezas[i]["grafo"]
-        return transponer(g, self.rng.randint(-5, 6)) if self.aumentar else g
+        if not self.aumentar:
+            return g
+        g = transponer(g, self.rng.randint(-5, 6))  # siempre devuelve una copia
+        if self.mutar > 0:
+            mutar_calidad(g, self.mutar, self.rng.randrange(2**31), self.mutaciones)
+        return g
 
 
 def main() -> None:

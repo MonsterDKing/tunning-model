@@ -19,6 +19,16 @@ Promediar probabilidades (en vez de votar cada nota su favorita) deja que una no
 más que una dudosa. Importante: solo usamos el instante t, no dónde termina el acorde escrito; el
 heurístico y Claude tampoco conocen la segmentación de la referencia.
 
+**Ventana hacia delante (Experimento 24).** Con las notas de t solas, el acorde se decide a veces
+con una sola nota de melodía (el 46 % de los acordes escritos tienen 1–3 notas atacando en t, y ahí
+el acierto baja de 90 % a 79–83 %). En un arpegio o una entrada escalonada, las notas que empiezan
+en las dos negras siguientes también describen el acorde. Por eso las notas que atacan en
+[t, t + ``VENTANA_NEGRAS``) votan también, con peso ``PESO_VENTANA`` (las de t pesan 1). Es una
+ventana fija, como la del heurístico: sigue sin usar la segmentación de la referencia. En dev_todo
+subió +0.45 puntos con los modelos del Exp. 21 y +0.33 con los del Exp. 23; se eligió entre 9
+combinaciones (0.5/1/2 negras × 0.3/0.6/1.0) mirando dev, así que la ganancia en test puede ser
+menor. Los resultados anteriores al Exp. 24 se midieron sin ventana (``ventana=0``).
+
 Métricas (las tres de la tabla de línea base)
 ---------------------------------------------
 - **raíz**: la raíz predicha = ``cs.root()`` del acorde escrito.
@@ -71,9 +81,26 @@ def notas_del_instante(onset: torch.Tensor, dur: torch.Tensor, t: float, eps: fl
     return ((onset - ultimo).abs() < eps).nonzero().flatten()
 
 
-def predecir_en_puntos(prob: torch.Tensor, onset: torch.Tensor, dur: torch.Tensor, tiempos: list[float]) -> list[int]:
-    """Clase predicha en cada instante de ``tiempos`` a partir de las probabilidades por nota."""
-    return [int(prob[notas_del_instante(onset, dur, t)].mean(0).argmax()) for t in tiempos]
+VENTANA_NEGRAS = 2.0  # las notas que atacan en [t, t + 2 negras) también votan…
+PESO_VENTANA = 0.3  # …con este peso (las que atacan justo en t pesan 1). Ver "Ventana hacia delante".
+
+
+def predecir_en_puntos(prob: torch.Tensor, onset: torch.Tensor, dur: torch.Tensor, tiempos: list[float],
+                       ventana: float = VENTANA_NEGRAS, peso: float = PESO_VENTANA) -> list[int]:  # fmt: skip
+    """Clase predicha en cada instante de ``tiempos`` a partir de las probabilidades por nota.
+
+    Media ponderada de las probabilidades: peso 1 para las notas de ``notas_del_instante`` y ``peso``
+    para las que atacan después de t dentro de la ``ventana`` (``ventana=0``: solo las de t).
+    """
+    preds = []
+    for t in tiempos:
+        w = torch.zeros(len(onset), device=prob.device)
+        w[notas_del_instante(onset, dur, t)] = 1.0
+        if ventana > 0:
+            despues = (onset > t + 1e-4) & (onset < t + ventana - 1e-4) & (w == 0)
+            w[despues] = peso
+        preds.append(int((prob * w[:, None]).sum(0).argmax()))  # dividir por w.sum() no cambia el argmax
+    return preds
 
 
 def comparar(pred: int, ref: dict) -> tuple[bool, bool, bool]:
@@ -131,7 +158,8 @@ def cargar_modelo(ruta: Path):
     ck = torch.load(ruta, weights_only=False, map_location="cpu")  # aunque se entrenara en GPU
     cfg = ck["config"]
     modelo = crear_modelo(cfg["arquitectura"], ck["metadata"], voz=cfg.get("peso_voz", 0) > 0, oculto=cfg["oculto"],
-                          capas=cfg["capas"], dropout=cfg["dropout"], clases=NUM_CLASES)  # fmt: skip
+                          capas=cfg["capas"], dropout=cfg["dropout"], clases=NUM_CLASES,
+                          cabeza=cfg.get("cabeza", "conjunta"))  # los modelos anteriores al Exp. 25 son "conjunta"  # fmt: skip
     modelo.load_state_dict(ck["estado"])
     return modelo, ck
 

@@ -50,7 +50,7 @@ from acordes_gnn.datos import RAIZ, cargar_splits
 from acordes_gnn.dataset import CorpusAcordes, nombres_de
 from acordes_gnn.etiquetas import CALIDADES, NUM_CLASES, SIN_ETIQUETA
 from acordes_gnn.evaluar import evaluar_piezas
-from acordes_gnn.modelo import ARQUITECTURAS, contar_parametros, crear_modelo
+from acordes_gnn.modelo import ARQUITECTURAS, CABEZAS, agrupar_por_ataque, contar_parametros, crear_modelo
 
 
 def argumentos(argv=None) -> argparse.Namespace:
@@ -64,10 +64,19 @@ def argumentos(argv=None) -> argparse.Namespace:
     p.add_argument("--capas", type=int, default=3)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--arquitectura", default="propio", choices=list(ARQUITECTURAS))
+    p.add_argument("--cabeza", default="conjunta", choices=list(CABEZAS),
+                   help="salida: 60 clases (conjunta) o raíz × calidad (factorizada, Exp. 25; ver modelo.py)")
     p.add_argument("--sin-transposicion", action="store_true", help="no aumentar train con transposiciones")
+    p.add_argument("--mutar-calidad", type=float, default=0.0,
+                   help="fracción de acordes escritos de train que se mutan de calidad en cada época (Exp. 26, ver dataset.py)")
+    p.add_argument("--mutaciones", default="raras", choices=["raras", "todas"],
+                   help="qué mutaciones: solo hacia dim/aum/sus (raras) o también mayor ↔ menor (todas)")
     p.add_argument("--semilla", type=int, default=0)
     p.add_argument("--peso-por-acorde", action=argparse.BooleanOptionalAction, default=True,
                    help="cada acorde escrito pesa igual en la pérdida (--no-peso-por-acorde: cada nota)")
+    p.add_argument("--perdida-por-ataque", action="store_true",
+                   help="entrenar lo que se mide: la pérdida se calcula sobre la MEDIA de probabilidades de las "
+                        "notas de cada ataque (como predecir_en_puntos), no nota a nota")
     p.add_argument("--datos", default="dos_manos", choices=["dos_manos", "dos_manos_antiguo", "dos_manos_pop909", "lead_sheets", "lead_sheets_todas", "todo",
                             "todo_pop909"],
                    help="con qué partituras entrenar (lead_sheets: para preentrenar; todo: dos manos + todas las lead sheets)")
@@ -113,6 +122,35 @@ def pesos_por_acorde(y: torch.Tensor, pieza: torch.Tensor) -> torch.Tensor:
     tramo = cambio.cumsum(0) - 1  # 0, 0, 0, 1, 1, 2…: a qué tramo pertenece cada nota
     notas_del_tramo = torch.bincount(tramo)[tramo].float()
     return torch.where(y == SIN_ETIQUETA, 0.0, 1.0 / notas_del_tramo)
+
+
+def perdida_por_ataque(logits: torch.Tensor, y: torch.Tensor, pieza: torch.Tensor, onset: torch.Tensor,
+                       peso_calidad: torch.Tensor | None = None) -> torch.Tensor:  # fmt: skip
+    """Entropía cruzada sobre la predicción de cada ATAQUE, no de cada nota (experimento 23).
+
+    Por qué: la métrica no mira notas sueltas. En cada punto del cifrado promedia las probabilidades
+    de las notas que atacan ahí y se queda con la mayor (``predecir_en_puntos``). La pérdida por nota
+    empuja a TODAS las notas del ataque hacia el acorde, también a la de paso que lo contradice; aquí
+    basta con que la MEDIA del ataque acierte, igual que en el examen: el modelo puede dejar dudosa una
+    nota de paso si las demás notas del acorde la compensan. Es la idea "onset-wise" de ChordGNN.
+
+    Cada ataque pesa como en ``pesos_por_acorde`` (cada acorde escrito suma 1): las notas del mismo
+    ataque comparten etiqueta (se etiquetan por su tiempo de inicio), así que la etiqueta del ataque
+    es la de cualquiera de sus notas.
+    """
+    ataque, conteos = agrupar_por_ataque(onset, pieza)  # ordenados por pieza y tiempo
+    n = sum(conteos)
+    prob = logits.softmax(-1)
+    suma = torch.zeros(n, prob.size(1), device=prob.device).index_add_(0, ataque, prob)
+    cuantas = torch.zeros(n, device=prob.device).index_add_(0, ataque, torch.ones(len(prob), device=prob.device))
+    prob_ataque = suma / cuantas[:, None]
+    y_ataque = torch.full((n,), SIN_ETIQUETA, dtype=y.dtype, device=y.device).scatter_(0, ataque, y)
+    pieza_ataque = torch.zeros(n, dtype=pieza.dtype, device=pieza.device).scatter_(0, ataque, pieza)
+    nll = -torch.log(prob_ataque.gather(1, y_ataque.clamp(min=0)[:, None]).squeeze(1) + 1e-9)
+    w = pesos_por_acorde(y_ataque, pieza_ataque)
+    if peso_calidad is not None:
+        w = w * peso_calidad[y_ataque.clamp(min=0) % len(CALIDADES)]
+    return (nll * w).sum() / w.sum()
 
 
 def pesos_por_calidad(piezas: list[dict], alfa: float) -> torch.Tensor:
@@ -170,7 +208,8 @@ def main(argv=None) -> None:
         # subconjuntos están anidados (el 25 % está dentro del 50 %…), así solo cambia la cantidad.
         orden = random.Random(args.semilla).sample(nombres_train, len(nombres_train))
         nombres_train = orden[: max(1, round(len(orden) * args.fraccion))]
-    train = CorpusAcordes(nombres_train, aumentar=not args.sin_transposicion, semilla=args.semilla)
+    train = CorpusAcordes(nombres_train, aumentar=not args.sin_transposicion, semilla=args.semilla, mutar=args.mutar_calidad,
+                          mutaciones=args.mutaciones)  # fmt: skip
     dev = CorpusAcordes(nombres_dev)
     if train.fallidas and args.datos != "dos_manos":
         # unas pocas lead sheets no se pueden leer (preparar-datos lo informa): se saltan
@@ -184,7 +223,7 @@ def main(argv=None) -> None:
 
     metadata = train.piezas[0]["grafo"].metadata()
     modelo = crear_modelo(args.arquitectura, metadata, voz=args.peso_voz > 0, oculto=args.oculto, capas=args.capas,
-                          dropout=args.dropout, clases=NUM_CLASES)  # fmt: skip
+                          dropout=args.dropout, clases=NUM_CLASES, cabeza=args.cabeza)  # fmt: skip
     if args.peso_voz > 0:  # la melodía del examen de voz no se ve nunca al entrenar
         examen_voz = set(cargar_splits()["pop909_voz_test"])
         for p in train.piezas:
@@ -224,7 +263,9 @@ def main(argv=None) -> None:
             else:
                 logits = modelo(lote.x_dict, lote.edge_index_dict, onset=lote["note"].onset_q, pieza=lote["note"].batch)
             y = lote["note"].y
-            if args.peso_por_acorde:
+            if args.perdida_por_ataque:
+                perdida = perdida_por_ataque(logits, y, lote["note"].batch, lote["note"].onset_q, peso_calidad)
+            elif args.peso_por_acorde:
                 # pérdida de cada nota (0 en las sin etiqueta) × su peso; dividir entre la suma de
                 # pesos (= nº de acordes) da la media POR ACORDE en vez de por nota
                 por_nota = torch.nn.functional.cross_entropy(logits, y, ignore_index=SIN_ETIQUETA, reduction="none")

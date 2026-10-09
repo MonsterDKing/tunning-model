@@ -36,3 +36,21 @@ def test_la_gru_ve_notas_lejanas_y_la_gnn_sola_no():
         antes, despues = _salida_primera_nota(modelo, x, onset), _salida_primera_nota(modelo, otra, onset)
         assert antes.shape == (NUM_CLASES,)
         assert (not torch.allclose(antes, despues)) == debe_cambiar, clase.__name__
+
+
+def test_cabeza_factorizada_es_una_distribucion_sobre_60_clases():
+    """Exp. 25: log p(raíz) + log p(calidad) → 60 logits cuyas probabilidades suman 1 y cuya entropía
+    cruzada es la suma de las de raíz y calidad."""
+    from acordes_gnn.etiquetas import clase
+    from acordes_gnn.modelo import CabezaFactorizada
+
+    torch.manual_seed(0)
+    cabeza = CabezaFactorizada(16)
+    h = torch.rand(4, 16)
+    logits = cabeza(h)
+    assert logits.shape == (4, NUM_CLASES)
+    assert torch.allclose(logits.exp().sum(-1), torch.ones(4), atol=1e-5)
+    y = torch.tensor([clase(0, "mayor"), clase(9, "menor"), clase(11, "dim"), clase(7, "sus")])
+    conjunta = torch.nn.functional.cross_entropy(logits, y)
+    por_partes = torch.nn.functional.cross_entropy(cabeza.raiz(h), y // 5) + torch.nn.functional.cross_entropy(cabeza.calidad(h), y % 5)
+    assert torch.allclose(conjunta, por_partes, atol=1e-5)
