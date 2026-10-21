@@ -14,18 +14,27 @@ cómo se mide de forma honesta.
 
 ## La línea base a batir
 
-Set de prueba congelado (30 partituras de PDMX, 1532 acordes escritos):
+Las calificaciones, en los dos exámenes congelados: el **test original** (30 partituras de PDMX,
+1532 acordes escritos) y el **test ampliado** (100 partituras más, 4067 acordes; ver Exp. 11).
 
-| método                         | raíz      | raíz + calidad | equivalente |
-|--------------------------------|-----------|----------------|-------------|
-| Heurístico (Analisis-AI)       | 80.7 %    | 76.2 %         | 83.1 %      |
-| Claude Opus (prompt v3)        | 90.8 %    | 88.4 %         | 92.6 %      |
-| **GNN (este proyecto)**        | **87.2 %**| **84.7 %**     | **85.8 %**  |
+| método                              | raíz       | raíz + calidad | equivalente | raíz + calidad (ampliado) |
+|-------------------------------------|------------|----------------|-------------|---------------------------|
+| Heurístico (Analisis-AI)            | 80.7 %     | 76.2 %         | 83.1 %      | 83.6 %                    |
+| Claude Opus (prompt v3)             | 90.8 %     | 88.4 %         | 92.6 %      | —                         |
+| BACHI-pop (Exp. 19)                 | —          | 75.0 %         | —           | 79.6 %                    |
+| BACHI-clásico (Exp. 19)             | —          | 80.9 %         | —           | 78.5 %                    |
+| MOSS-Music-8B, escuchando (Exp. 28)\* | 24.6 %   | 20.7 %         | 21.5 %      | —                         |
+| **GNN (este proyecto)**             | **87.4 %** | **84.8 %**     | **86.4 %**  | **85.8 %**                |
 
-GNN = media de 3 semillas del mejor modelo (Experimento 13: `--datos todo_pop909 --peso-dos-manos 10
---oculto 256 --epocas 10`, entrenado en la RTX 4090), medida al cerrar el experimento (ver
-[Experimentos](#experimentos-realizados)). En el test ampliado (100 partituras más, 4067 acordes):
-raíz 88.9 %, raíz+calidad 85.8 %, equivalente 89.0 %, frente a 87.2 % / 83.6 % / 87.9 % del heurístico.
+GNN = media de 3 semillas del modelo vigente (`modelos/mejor.pt`): la configuración del Exp. 13
+(`--datos todo_pop909 --peso-dos-manos 10 --oculto 256 --epocas 10`, en la RTX 4090) con el rasgo
+`es_bajo` (Exp. 21) y la ventana de decodificación (Exp. 24). En el test ampliado: raíz 89.2 %,
+raíz+calidad 85.8 %, equivalente 88.7 %, frente a 87.2 % / 83.6 % / 87.9 % del heurístico. En el test
+original, Claude y el heurístico se midieron en Analisis-AI; lo demás, aquí, con la misma métrica (ver
+[Experimentos](#experimentos-realizados)).
+
+\* Provisional: solo en las 12 partituras de test (540 acordes) que MOSS ha contestado hasta ahora.
+En esas mismas 12, la GNN saca 89.0 % / 83.5 % / 85.9 %.
 
 *raíz + calidad* = raíz y mayor/menor/dim/aum correctos. *Equivalente* = las notas del acorde
 predicho están contenidas en las del escrito o al revés (C ⊆ C7, Am ⊆ Fmaj7).
@@ -233,6 +242,7 @@ detalle, con gráficas, está en el documento de aprendizaje paso a paso.
 | 25 | Cabeza factorizada raíz (12) × calidad (5) (`--cabeza factorizada`): log p(acorde) = log p(raíz) + log p(calidad), para que dim y sus aprendan de todas las raíces | dev 70: 84.5 % (base 87.1 %) | Mucho peor, en las 3 semillas, y dim/sus no mejoran (22 % / 7 %). Los fallos "misma raíz, otra calidad" suben de 251 a 430: la factorización supone que la calidad no depende de la raíz, y en la duda típica (Am o C, F o Dm) es justo al revés: "menor si la raíz es La, mayor si es Do". Una distribución producto no puede decir "50 % Am, 50 % C" sin regalar masa a Cm y A. Lección: compartir parámetros ayuda solo si la independencia que supone es cierta |
 | 26 | Aumento por mutación de calidad (`--mutar-calidad`, `dataset.mutar_calidad`): en una fracción de los acordes escritos de train se mueve la nota que define la calidad y la etiqueta cambia con ella (Do mayor → Do aum si Sol → Sol♯, → Dosus4 si Mi → Fa; menor → dim o sus2). La textura y la melodía siguen siendo del arreglista, como en la transposición | modelo de 128, solo dos manos, 40 épocas (base 85.9 %): `--mutaciones todas` 0.15: 85.8 %, 0.30: 85.0 %; `raras` 0.05: 86.2 %, 0.10: 85.7 % | Hace lo que buscaba en dim (17 % → 25–30 %) sin tocar mayores, pero intercambiar mayor ↔ menor ("todas") cuesta menores (88.2 → 86.9 %): mutar lo que ya tiene datos de sobra solo mete ruido. Con "raras" al 5 % el saldo es +0.3, dentro del ruido de semillas (+1.1 / +0.4 / −0.5). Confirmación con la configuración completa (`todo_pop909`, 256, 10 épocas, 5 % raras) en la 4090: dev 70 86.3 % frente a 87.1 % del Exp. 21, peor en las 3 semillas (86.7 / 85.7 / 86.4), y dim no sube (25.4 % frente a 25.8 %). Con POP909 el modelo ya tiene disminuidos reales de sobra; los mutados solo añaden ruido. **No se usa por defecto** (`--mutar-calidad 0`) |
 | 27 | ¿Sirve un LLM para rellenar las etiquetas dudosas? Medido en dev (donde hay verdad humana): los 604 acordes (20 %) con margen < 0.5 del ensemble del Exp. 21 (`scripts/casos_dudosos.py`, `scripts/preguntar_llm.py`, OpenRouter) | En esos 604: GNN 62.6 %, GPT-6 Luna 63.9 %, Gemini 3.8 Flash 65.9 % (71.7 % en los 555 que contestó; 49 sin respuesta por falta de saldo). La verdad está en el top-3 de la GNN el 85 % | El LLM acierta poco más que la GNN justo donde la GNN duda: 1 de cada 4 etiquetas que pusiera ahí sería errónea, y serían su convención, no la del arreglista. No compensa romper la regla 3: ese 20 % lo revisa una persona (unos 8 acordes por partitura). Las respuestas del LLM no entran en ningún split. Coste: ≈ 2 $ |
+| 28 | *(en curso)* Comparación con MOSS-Music-8B, un modelo que **escucha** audio: las 30 de test tocadas con piano de soundfont a 90 BPM (`scripts/exportar_para_audio.py`, `sintetizar.py`) y transcritas en la 4090 (`moss_acordes.py`, en trozos de 30 s porque la canción entera llena los 24 GB), puntuadas con nuestra métrica (`puntuar_moss.py`) | — (solo test, para informar) | Por ahora contestó 12 de 30 partituras (540 acordes): raíz+calidad 20.7 % (25.0 % con ±0,5 s de margen) frente a 83.5 % de la GNN en las mismas. Con la canción entera, 6 de 30 y 24.2 %. Un modelo de audio generalista de 8 000 M de parámetros queda muy por debajo del heurístico: leer la partitura da ventaja. Pendiente: completar las 18 que faltan |
 
 ### 5. Evaluar en test
 
